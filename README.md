@@ -6,18 +6,22 @@ on your life. Everything runs locally: no cloud, no token cost.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full vision, personas, and architecture.
 
-## Status — MVP step 1
+## Status — MVP step 2
 
-This is the first build slice: **one persona (Kratos) chatting end-to-end
-through your local Ollama model, with streaming replies.** Memory, voice,
-avatars, persona switching, and the other five personas come in later steps.
+The full Council and live persona switching now work. Memory persistence
+(MemPalace), voice, and avatars come in later steps.
 
 What works now:
 
 - Node.js + Express backend
 - Connects to local Ollama (`/api/chat`) and streams tokens back live
 - Plain HTML/CSS/JS chat UI — no React/Electron/build step
-- Kratos persona (system prompt) wrapped around every message
+- All six personas — Kratos, Dante, Vergil, Jiraiya, Naruto, Anya — each with
+  its own character sheet, and aware it is one of the Council
+- A persona picker in the header; the active persona is highlighted
+- **One continuous session:** switching personas keeps the transcript. The
+  incoming persona sees the prior conversation with each speaker attributed by
+  name, so it reacts to the others while staying in its own voice
 - In-session conversation history, held in the browser (cleared on refresh)
 
 ## Project structure
@@ -30,7 +34,12 @@ my-council/
 │   ├── ollama.js         # Ollama client: streams /api/chat responses
 │   └── personas/
 │       ├── index.js      # persona registry (add new personas here)
-│       └── kratos.js     # Kratos character sheet
+│       ├── kratos.js     # one character sheet per persona…
+│       ├── dante.js
+│       ├── vergil.js
+│       ├── jiraiya.js
+│       ├── naruto.js
+│       └── anya.js
 └── public/
     ├── index.html        # chat UI
     ├── styles.css

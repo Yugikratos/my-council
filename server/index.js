@@ -23,6 +23,42 @@ app.get("/api/personas", (req, res) => {
   res.json({ personas: listPersonas(), default: DEFAULT_PERSONA_ID });
 });
 
+// Build the Ollama message list from the running session log. The active
+// persona's own turns are sent as-is; turns from other Council members are
+// attributed by name (e.g. "[Vergil]: ...") so the active persona has context
+// and can react to them while staying firmly in its own voice.
+function buildOllamaMessages(persona, log) {
+  const fromOthers = log.some(
+    (m) => m.role === "assistant" && m.persona && m.persona !== persona.id
+  );
+
+  // Only add the attribution note when other members are actually present.
+  let systemContent = persona.systemPrompt;
+  if (fromOthers) {
+    systemContent +=
+      '\n\n[Shared Council session: replies marked like "[Vergil]: ..." are from ' +
+      "other members, not you. Reply only as yourself, in your own voice, with no name marker.]";
+  }
+
+  const messages = [{ role: "system", content: systemContent }];
+
+  for (const m of log) {
+    if (m.role === "user") {
+      messages.push({ role: "user", content: m.content });
+    } else if (m.role === "assistant") {
+      if (m.persona && m.persona !== persona.id) {
+        const other = getPersona(m.persona);
+        const name = other ? other.displayName : m.persona;
+        messages.push({ role: "assistant", content: `[${name}]: ${m.content}` });
+      } else {
+        messages.push({ role: "assistant", content: m.content });
+      }
+    }
+  }
+
+  return messages;
+}
+
 // Streaming chat endpoint.
 // Request body: { personaId?: string, messages: [{ role, content }, ...] }
 // Response: Server-Sent Events, one JSON payload per `data:` frame:
@@ -40,11 +76,9 @@ app.post("/api/chat", async (req, res) => {
     return res.status(400).json({ error: "`messages` must be an array." });
   }
 
-  // Prepend the persona's character sheet so every reply stays in voice.
-  const fullMessages = [
-    { role: "system", content: persona.systemPrompt },
-    ...messages,
-  ];
+  // Build the message list for Ollama: the persona's character sheet plus the
+  // running conversation, with other Council members' turns attributed by name.
+  const fullMessages = buildOllamaMessages(persona, messages);
 
   // Open a Server-Sent Events stream to the browser.
   res.setHeader("Content-Type", "text/event-stream");

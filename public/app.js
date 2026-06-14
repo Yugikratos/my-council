@@ -1,32 +1,75 @@
 // My Council — frontend chat logic.
 //
-// The browser owns the conversation history (the server is stateless): we keep
-// the full message list here and send it with every turn. The persona's reply
-// streams back token by token over Server-Sent Events.
-
-const PERSONA_ID = "kratos";
+// The browser owns the conversation (the server is stateless): we keep the full
+// session log here and send it with every turn. Switching personas keeps one
+// continuous session — the transcript stays, and each speaker is recorded so the
+// server can attribute the other Council members' turns to the active persona.
 
 const chatEl = document.getElementById("chat");
 const formEl = document.getElementById("composer");
 const inputEl = document.getElementById("input");
 const sendBtn = document.getElementById("send");
-const personaNameEl = document.getElementById("persona-name");
+const rosterEl = document.getElementById("roster");
 
-// The conversation so far, in Ollama's message format. The system prompt is
-// added server-side, so this holds only user/assistant turns.
+let personas = []; // [{ id, displayName }] from GET /api/personas
+let activeId = null; // id of the currently selected persona
+
+// The session log, in order. Each entry is one turn:
+//   { role: "user", content }
+//   { role: "assistant", content, persona }   // persona = who said it
 const history = [];
+
+function activePersona() {
+  return personas.find((p) => p.id === activeId);
+}
+
+// --- Persona roster (header picker) ---------------------------------------
+
+async function loadPersonas() {
+  try {
+    const res = await fetch("/api/personas");
+    const data = await res.json();
+    personas = data.personas;
+    activeId = data.default ?? personas[0]?.id;
+    renderRoster();
+  } catch {
+    // If this fails the server is down; the first send will surface the error.
+  }
+}
+
+function renderRoster() {
+  rosterEl.innerHTML = "";
+  for (const p of personas) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "persona-btn" + (p.id === activeId ? " active" : "");
+    btn.textContent = p.displayName;
+    btn.setAttribute("aria-pressed", String(p.id === activeId));
+    btn.addEventListener("click", () => switchPersona(p.id));
+    rosterEl.appendChild(btn);
+  }
+}
+
+function switchPersona(id) {
+  if (id === activeId) return;
+  activeId = id;
+  renderRoster();
+  // One continuous session: keep the transcript, just mark who's taking over.
+  addDivider(activePersona().displayName);
+  inputEl.focus();
+}
 
 // --- UI helpers -----------------------------------------------------------
 
 // Add a message bubble and return its body element (so we can stream into it).
-function addMessage(role, text = "") {
+function addMessage(role, text = "", speaker = "") {
   const bubble = document.createElement("div");
   bubble.className = `msg ${role}`;
 
   if (role !== "error") {
     const who = document.createElement("span");
     who.className = "who";
-    who.textContent = role === "user" ? "You" : personaNameEl.textContent;
+    who.textContent = role === "user" ? "You" : speaker;
     bubble.appendChild(who);
   }
 
@@ -40,6 +83,17 @@ function addMessage(role, text = "") {
   return body;
 }
 
+// A light marker in the transcript showing which persona now holds the floor.
+function addDivider(name) {
+  const last = chatEl.lastElementChild;
+  if (last && last.classList.contains("divider")) last.remove(); // collapse repeats
+  const div = document.createElement("div");
+  div.className = "divider";
+  div.textContent = name;
+  chatEl.appendChild(div);
+  scrollToBottom();
+}
+
 function scrollToBottom() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
@@ -47,6 +101,7 @@ function scrollToBottom() {
 function setBusy(busy) {
   sendBtn.disabled = busy;
   inputEl.disabled = busy;
+  rosterEl.querySelectorAll("button").forEach((b) => (b.disabled = busy));
   if (!busy) inputEl.focus();
 }
 
@@ -79,6 +134,9 @@ formEl.addEventListener("submit", async (e) => {
   const text = inputEl.value.trim();
   if (!text) return;
 
+  const persona = activePersona();
+  if (!persona) return; // personas haven't loaded yet
+
   // Show and record the user's message.
   addMessage("user", text);
   history.push({ role: "user", content: text });
@@ -87,8 +145,8 @@ formEl.addEventListener("submit", async (e) => {
   inputEl.style.height = "auto";
   setBusy(true);
 
-  // Placeholder bubble for the streaming reply, with a blinking caret.
-  const replyBody = addMessage("persona", "");
+  // Placeholder bubble for the streaming reply, labeled with the active persona.
+  const replyBody = addMessage("persona", "", persona.displayName);
   replyBody.parentElement.classList.add("cursor");
 
   let reply = "";
@@ -98,7 +156,7 @@ formEl.addEventListener("submit", async (e) => {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ personaId: PERSONA_ID, messages: history }),
+      body: JSON.stringify({ personaId: persona.id, messages: history }),
     });
 
     if (!res.ok) {
@@ -117,8 +175,8 @@ formEl.addEventListener("submit", async (e) => {
     });
 
     if (reply) {
-      // Keep the reply in history so the conversation flows naturally.
-      history.push({ role: "assistant", content: reply });
+      // Record who said it so later personas see it attributed by name.
+      history.push({ role: "assistant", content: reply, persona: persona.id });
     } else if (!errored) {
       // Nothing came back and no error reported — drop the empty bubble.
       replyBody.parentElement.remove();
@@ -126,8 +184,8 @@ formEl.addEventListener("submit", async (e) => {
   } catch (err) {
     showError(replyBody, err.message || "Could not reach the server.");
   } finally {
-    // The caret class lives on the reply bubble; showError() may have already
-    // replaced it, in which case parentElement is null and this is a no-op.
+    // showError() may have already replaced the bubble, in which case
+    // parentElement is null and this is a no-op.
     replyBody.parentElement?.classList.remove("cursor");
     setBusy(false);
   }
@@ -161,4 +219,5 @@ async function readStream(res, onEvent) {
   }
 }
 
-inputEl.focus();
+// Boot: load the roster, then focus the input.
+loadPersonas().finally(() => inputEl.focus());

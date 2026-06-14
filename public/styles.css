@@ -35,9 +35,9 @@ body {
 /* Header */
 .header {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 18px 22px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 22px;
   border-bottom: 1px solid #25282c;
 }
 
@@ -48,11 +48,50 @@ body {
   letter-spacing: 0.5px;
 }
 
-.persona {
-  color: var(--accent);
-  font-weight: 600;
+/* Persona picker — the six names sit in the header, active one highlighted. */
+.roster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.persona-btn {
+  padding: 5px 13px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid #2c3034;
+  border-radius: 999px;
+  font: inherit;
   font-size: 13px;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.persona-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #3a3f44;
+}
+
+.persona-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.persona-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Marker showing which persona has taken over the conversation. */
+.divider {
+  align-self: center;
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 2px;
   text-transform: uppercase;
 }
 
