@@ -28,8 +28,26 @@ A local-first desktop AI companion app where six anime/gaming character personas
 - Each persona is AWARE the other five exist and may reference them (e.g. "Naruto would tell you to push on, but I say rest")
 - This creates an "ensemble / council of voices" feel, not six isolated chatbots
 - Each persona stays fully in character — voice, tone, worldview, quirks drawn from source material
-- On launch, ONE persona loads (random by default) and appears as a desktop avatar
+- Each launch loads ONE persona (random by default) that appears as a desktop avatar
 - Personas reference past conversations naturally to create continuity across days
+
+## Voice-First Prompt Constraints (Voice Companion Ready)
+
+To support Text-to-Speech (TTS) integration, the system prompts and context injection follow strict voice constraints to prevent the local LLM from generating unspokable text:
+1. **Dialogue Only:** Personas must output *only* spoken dialogue. No physical actions, stage directions, or internal thoughts.
+2. **No Narration:** No first-person narration (e.g. no "I laughed", "I took a drink").
+3. **No Formatting Characters:** No quotation marks (") or asterisks (*) are allowed in the persona output. They must speak directly.
+4. **Snappy Replies:** Replies are constrained to 1-3 sentences maximum (ideal for voice widgets).
+5. **Memory Retrieval Safeguards:**
+   - **Greeting Filter:** Generic greetings (e.g. "hi", "hey", "sup") are filtered out of memory retrieval entirely to prevent irrelevant past memories from loading into the context.
+   - **Semantic Distance Threshold:** A cosine similarity threshold of `0.7` is enforced in `server/memory.js`. Any retrieved memory with a distance higher than `0.7` is dropped as semantically unrelated.
+   - **Database-Style Context Injection:** Memories are injected as structured dry logs (e.g. `[DATABASE MEMORY LOGS - User to Kratos: "..."]`), explicitly instructing the LLM to treat them as background facts and never to blurt them out unprompted.
+6. **Context Isolation (Conversation Isolation):**
+   - Active chat logs sent to the LLM are isolated: the assistant history **only** contains turns between the user and the active persona.
+   - User turns addressed to other personas are formatted as a dry background block (`[OBSERVED HISTORY]`) at the top of the prompt.
+   - This completely stops semantic leakage (e.g., Naruto answering queries addressed to Kratos) while retaining shared awareness.
+7. **Character Reference Constraints:**
+   - Personas must not mention other members unless the user explicitly brings them up first, preventing random hyper-fixation.
 
 ## Runtime Flow
 

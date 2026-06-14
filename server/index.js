@@ -81,8 +81,13 @@ app.post("/api/chat", async (req, res) => {
   let completed = false;
   try {
     for await (const token of streamChat(fullMessages)) {
-      reply += token;
-      send({ type: "token", value: token });
+      // Clean token of asterisks, double quotes (straight and curly), and opening single curly quote.
+      // We preserve apostrophes (') and closing single curly quotes (’) to keep English contractions intact.
+      const cleanToken = token.replace(/[\*"“”‘]/g, "");
+      reply += cleanToken;
+      if (cleanToken) {
+        send({ type: "token", value: cleanToken });
+      }
     }
     completed = true;
     send({ type: "done" });

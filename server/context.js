@@ -22,15 +22,11 @@ import { getPersona } from "./personas/index.js";
  */
 function formatMemories(memories) {
   const lines = memories.map((m) => {
-    const date = (m.timestamp || "").slice(0, 10); // YYYY-MM-DD
-    const when = date ? `(${date}) ` : "";
     const name = m.persona_name || m.persona_id || "another member";
-    return `- ${when}You said to ${name}: "${m.user_message}" — ${name} replied: "${m.reply}"`;
+    return `- User to ${name}: "${m.user_message}" — ${name} replied: "${m.reply}"`;
   });
   return (
-    "[Long-term memory — relevant moments from earlier sessions with the Council. " +
-    "This is shared context to inform your reply, not your own words unless attributed " +
-    "to you. You may refer to it naturally.]\n" +
+    "[DATABASE MEMORY LOGS - Treat purely as background context. Do NOT bring these up unless the user asks you about them:]\n" +
     lines.join("\n")
   );
 }
@@ -47,18 +43,12 @@ function formatMemories(memories) {
 function userGroundingNote(memories) {
   const hasMemories = memories && memories.length > 0;
   const memoryClause = hasMemories
-    ? `${
-        memories.length === 1 ? "There is 1 stored memory" : `There are ${memories.length} stored memories`
-      } from earlier sessions provided this turn (the "Long-term memory" section above); treat those as real.`
-    : `No memories from earlier sessions have been recorded yet — so beyond this conversation, nothing about the user has been stored.`;
+    ? `There are stored memories provided in the "[DATABASE MEMORY LOGS]" section.`
+    : `No memories have been stored yet.`;
   return (
-    "[USER GROUNDING] You know NOTHING about the user except what they actually say in this conversation and what appears in " +
-    "the long-term memory provided this turn. " +
+    "[GROUNDING] You know nothing about the user beyond what they state in this turn and the memories. " +
     memoryClause +
-    " You do not know their job, name, location, history, relationships, or feelings unless they have stated them. If you are " +
-    "asked about any such thing you were not told — for example \"what do I do for a living?\" — answer honestly that you do " +
-    "not know it and ask them; never state, guess, or claim to \"recall\" it. (This applies to the USER only — you may still " +
-    "speculate playfully about the other Council members.)"
+    " If asked about their life, job, or details not mentioned, state honestly that you do not know. Never guess."
   );
 }
 
@@ -83,86 +73,63 @@ function nextResponder(log, i) {
  * @returns {Array<{role: string, content: string}>} messages for Ollama.
  */
 export function buildOllamaMessages(persona, log, memories = []) {
-  // Did any OTHER member speak earlier in this session?
-  const fromOthers = log.some(
-    (m) => m.role === "assistant" && m.persona && m.persona !== persona.id
-  );
-
-  // The active persona's character sheet is always the system prompt. Only when
-  // other members are present do we explain how their turns appear, and pin the
-  // active persona's identity so it never slips into another's voice.
   let systemContent = persona.systemPrompt;
-  if (fromOthers) {
-    systemContent +=
-      `\n\n---\nThis is a shared Council session, and the user consults one member at a time. ` +
-      `In the context below, lines like 'Earlier in this conversation, you said to Kratos (another Council member): "..."' ` +
-      `are the user's words to ANOTHER member, and lines like 'Earlier in this conversation, Kratos (another Council member) ` +
-      `said: "..."' are that member's reply. Both are observed history, not words spoken to you. Respond to the line that begins ` +
-      `'The user now says to you' — that is what the user has actually said to YOU now — and treat the labeled 'Earlier in this ` +
-      `conversation' lines as context you may reference but that were not addressed to you. The other members are not here — ` +
-      `do not invent scenes, places, or actions for them, ` +
-      `and do not fabricate anything that did not happen. Reply only as yourself, ${persona.displayName}, in your own voice; ` +
-      `never begin with a name label such as "[Kratos]:", and never speak as another member.`;
-  }
-
-  // USER GROUNDING — always present. Anchors what the persona actually knows
-  // about the user so it asks rather than confabulating unstated facts.
-  systemContent += "\n\n---\n" + userGroundingNote(memories);
-
-  // Convert each logged turn. Other members' turns become user-side context;
-  // the active persona's own turns stay clean assistant turns.
-  const turns = [];
-
-  // Long-term memories lead, as user-side reference context (never assistant).
-  // The merge step below folds this into the first real user turn.
-  if (memories && memories.length) {
-    turns.push({ role: "user", content: formatMemories(memories) });
-  }
+  
+  // Separate the log: active persona conversation vs observed other conversations
+  const activeLog = [];
+  const observedHistory = [];
 
   for (let i = 0; i < log.length; i++) {
     const m = log[i];
     if (m.role === "user") {
-      // Who was this addressed to? Whichever persona replied next; if none has
-      // replied yet (undefined), it's the current message, addressed to the
-      // active persona.
       const addressee = nextResponder(log, i);
-      if (addressee !== undefined && addressee !== persona.id) {
-        // Aimed at another member — observed context, not spoken to the active
-        // persona. Labelled so the persona doesn't treat it as its own prompt.
+      if (addressee === persona.id || addressee === undefined) {
+        activeLog.push({ role: "user", content: m.content });
+      } else {
         const other = getPersona(addressee);
         const name = other ? other.displayName : addressee;
-        turns.push({
-          role: "user",
-          content: `Earlier in this conversation, you said to ${name} (another Council member): "${m.content}"`,
-        });
-      } else if (addressee === undefined && fromOthers) {
-        // The current message, in a session where other members have also been
-        // addressed. Mark it explicitly so the persona answers THIS, not the
-        // labelled context above it.
-        turns.push({
-          role: "user",
-          content: `The user now says to you, ${persona.displayName}: "${m.content}"`,
-        });
-      } else {
-        // The active persona's own ongoing thread — send clean.
-        turns.push({ role: "user", content: m.content });
+        observedHistory.push({ type: "user", name, content: m.content });
       }
     } else if (m.role === "assistant") {
-      if (m.persona && m.persona !== persona.id) {
+      if (m.persona === persona.id) {
+        activeLog.push({ role: "assistant", content: m.content });
+      } else {
         const other = getPersona(m.persona);
         const name = other ? other.displayName : m.persona;
-        turns.push({
-          role: "user",
-          content: `Earlier in this conversation, ${name} (another Council member) said: "${m.content}"`,
-        });
-      } else {
-        turns.push({ role: "assistant", content: m.content });
+        const lastObs = observedHistory[observedHistory.length - 1];
+        if (lastObs && lastObs.name === name && lastObs.type === "user") {
+          lastObs.reply = m.content;
+        }
       }
     }
   }
 
-  // Gemma expects alternating roles; collapse any consecutive same-role turns
-  // (which folding other members into the user side can create) into one.
+  // Inject observed other-character conversations as flat system background context
+  if (observedHistory.length > 0) {
+    const lines = observedHistory.map((obs) => {
+      return `- User to ${obs.name}: "${obs.content}"`;
+    });
+    systemContent +=
+      `\n\n---\n[OBSERVED HISTORY - Past exchanges with other Council members in this session. ` +
+      `Treat this ONLY as background context. Do NOT bring it up, repeat it, or reply to it unless the user explicitly asks you about them. ` +
+      `Respond only to the user's latest message addressed to you:]\n` +
+      lines.join("\n");
+  }
+
+  // USER GROUNDING — always present.
+  systemContent += "\n\n---\n" + userGroundingNote(memories);
+
+  const turns = [];
+
+  // Long-term memories lead, as user-side reference context (never assistant).
+  if (memories && memories.length) {
+    turns.push({ role: "user", content: formatMemories(memories) });
+  }
+
+  // Interleave the isolated active log turns
+  turns.push(...activeLog);
+
+  // Gemma expects alternating roles; collapse any consecutive same-role turns into one.
   const merged = [];
   for (const t of turns) {
     const last = merged[merged.length - 1];

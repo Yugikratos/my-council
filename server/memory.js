@@ -29,16 +29,29 @@ async function postJson(path, body) {
   }
 }
 
+const GREETING_WORDS = new Set([
+  "hi", "hii", "hiii", "hey", "heyy", "heyyy", "heya", "hello", "helloo",
+  "yo", "sup", "ssup", "wassup", "wasup", "hiya", "howdy", "gm", "gn", "greetings"
+]);
+
+function isGreeting(query) {
+  const words = query.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "").split(/\s+/);
+  return words.length > 0 && words.every(w => GREETING_WORDS.has(w));
+}
+
 /**
  * Retrieve the most relevant past exchanges for `query`.
  * @returns {Promise<{ok: boolean, memories: Array}>}
  *   ok=false means the memory service was unreachable (caller should notify UI).
  */
 export async function retrieve(query) {
-  if (!enabled || !query) return { ok: true, memories: [] };
+  if (!enabled || !query || isGreeting(query)) return { ok: true, memories: [] };
   try {
     const data = await postJson("/retrieve", { query });
-    return { ok: true, memories: data.memories ?? [] };
+    const rawMemories = data.memories ?? [];
+    // Only keep memories that are semantically close (distance <= 0.7)
+    const filteredMemories = rawMemories.filter(m => m.distance !== undefined && m.distance <= 0.7);
+    return { ok: true, memories: filteredMemories };
   } catch (err) {
     console.warn(`[memory] retrieve failed: ${err.message}`);
     return { ok: false, memories: [] };
