@@ -1,0 +1,17 @@
+{
+  "name": "my-council",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first desktop AI companion — the Council. MVP step 1: a single persona (Kratos) chatting end-to-end through local Ollama.",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
