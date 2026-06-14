@@ -36,6 +36,43 @@ function formatMemories(memories) {
 }
 
 /**
+ * A factual anchor telling the active persona exactly what it knows about the
+ * user, so it grounds instead of confabulating. Prompt rules alone ("don't
+ * guess") don't reliably hold on a small model; a concrete "here is all you
+ * know — and it may be nothing" anchor works far better. Always injected.
+ *
+ * @param {Array<object>} memories retrieved long-term memories for this turn.
+ * @returns {string}
+ */
+function userGroundingNote(memories) {
+  const hasMemories = memories && memories.length > 0;
+  const memoryClause = hasMemories
+    ? `${
+        memories.length === 1 ? "There is 1 stored memory" : `There are ${memories.length} stored memories`
+      } from earlier sessions provided this turn (the "Long-term memory" section above); treat those as real.`
+    : `No memories from earlier sessions have been recorded yet — so beyond this conversation, nothing about the user has been stored.`;
+  return (
+    "[USER GROUNDING] You know NOTHING about the user except what they actually say in this conversation and what appears in " +
+    "the long-term memory provided this turn. " +
+    memoryClause +
+    " You do not know their job, name, location, history, relationships, or feelings unless they have stated them. If you are " +
+    "asked about any such thing you were not told — for example \"what do I do for a living?\" — answer honestly that you do " +
+    "not know it and ask them; never state, guess, or claim to \"recall\" it. (This applies to the USER only — you may still " +
+    "speculate playfully about the other Council members.)"
+  );
+}
+
+// The persona that replied to the user message at index `i` — i.e. who that
+// message was addressed to. Returns undefined if no reply has followed yet (the
+// current, unanswered message), meaning it was addressed to the active persona.
+function nextResponder(log, i) {
+  for (let j = i + 1; j < log.length; j++) {
+    if (log[j].role === "assistant") return log[j].persona;
+  }
+  return undefined;
+}
+
+/**
  * @param {{id: string, displayName: string, systemPrompt: string}} persona
  *        the ACTIVE persona — the one who must speak now.
  * @param {Array<{role: string, content: string, persona?: string}>} log
@@ -57,12 +94,20 @@ export function buildOllamaMessages(persona, log, memories = []) {
   let systemContent = persona.systemPrompt;
   if (fromOthers) {
     systemContent +=
-      `\n\n---\nThis is a shared Council session. Earlier replies from OTHER members appear ` +
-      `as context lines like: 'Earlier in this conversation, Kratos (another Council member) said: "..."'. Those are their ` +
-      `words, not yours. Respond only as yourself, ${persona.displayName}, in your own voice. ` +
-      `Never begin your reply with a name label such as "[Kratos]:", and never speak as another ` +
-      `member. You may refer to what another member said.`;
+      `\n\n---\nThis is a shared Council session, and the user consults one member at a time. ` +
+      `In the context below, lines like 'Earlier in this conversation, you said to Kratos (another Council member): "..."' ` +
+      `are the user's words to ANOTHER member, and lines like 'Earlier in this conversation, Kratos (another Council member) ` +
+      `said: "..."' are that member's reply. Both are observed history, not words spoken to you. Respond to the line that begins ` +
+      `'The user now says to you' — that is what the user has actually said to YOU now — and treat the labeled 'Earlier in this ` +
+      `conversation' lines as context you may reference but that were not addressed to you. The other members are not here — ` +
+      `do not invent scenes, places, or actions for them, ` +
+      `and do not fabricate anything that did not happen. Reply only as yourself, ${persona.displayName}, in your own voice; ` +
+      `never begin with a name label such as "[Kratos]:", and never speak as another member.`;
   }
+
+  // USER GROUNDING — always present. Anchors what the persona actually knows
+  // about the user so it asks rather than confabulating unstated facts.
+  systemContent += "\n\n---\n" + userGroundingNote(memories);
 
   // Convert each logged turn. Other members' turns become user-side context;
   // the active persona's own turns stay clean assistant turns.
@@ -74,9 +119,34 @@ export function buildOllamaMessages(persona, log, memories = []) {
     turns.push({ role: "user", content: formatMemories(memories) });
   }
 
-  for (const m of log) {
+  for (let i = 0; i < log.length; i++) {
+    const m = log[i];
     if (m.role === "user") {
-      turns.push({ role: "user", content: m.content });
+      // Who was this addressed to? Whichever persona replied next; if none has
+      // replied yet (undefined), it's the current message, addressed to the
+      // active persona.
+      const addressee = nextResponder(log, i);
+      if (addressee !== undefined && addressee !== persona.id) {
+        // Aimed at another member — observed context, not spoken to the active
+        // persona. Labelled so the persona doesn't treat it as its own prompt.
+        const other = getPersona(addressee);
+        const name = other ? other.displayName : addressee;
+        turns.push({
+          role: "user",
+          content: `Earlier in this conversation, you said to ${name} (another Council member): "${m.content}"`,
+        });
+      } else if (addressee === undefined && fromOthers) {
+        // The current message, in a session where other members have also been
+        // addressed. Mark it explicitly so the persona answers THIS, not the
+        // labelled context above it.
+        turns.push({
+          role: "user",
+          content: `The user now says to you, ${persona.displayName}: "${m.content}"`,
+        });
+      } else {
+        // The active persona's own ongoing thread — send clean.
+        turns.push({ role: "user", content: m.content });
+      }
     } else if (m.role === "assistant") {
       if (m.persona && m.persona !== persona.id) {
         const other = getPersona(m.persona);
