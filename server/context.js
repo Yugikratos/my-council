@@ -48,7 +48,8 @@ function userGroundingNote(memories) {
   return (
     "[GROUNDING] You know nothing about the user beyond what they state in this turn and the memories. " +
     memoryClause +
-    " If asked about their life, job, or details not mentioned, state honestly that you do not know. Never guess."
+    " If asked about their life, job, or details not mentioned, state honestly that you do not know — never guess. " +
+    "This strict rule applies ONLY to facts about the USER. You may still speculate playfully about the other Council members."
   );
 }
 
@@ -104,10 +105,14 @@ export function buildOllamaMessages(persona, log, memories = []) {
     }
   }
 
-  // Inject observed other-character conversations as flat system background context
+  // Inject observed other-character conversations as flat system background context.
+  // Include the other member's reply when one followed, so the active persona is
+  // aware of what was actually said — cross-persona awareness is the whole point.
+  // Format mirrors formatMemories() so in-session and long-term context read alike.
   if (observedHistory.length > 0) {
     const lines = observedHistory.map((obs) => {
-      return `- User to ${obs.name}: "${obs.content}"`;
+      const base = `- User to ${obs.name}: "${obs.content}"`;
+      return obs.reply ? `${base} — ${obs.name} replied: "${obs.reply}"` : base;
     });
     systemContent +=
       `\n\n---\n[OBSERVED HISTORY - Past exchanges with other Council members in this session. ` +
