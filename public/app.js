@@ -32,6 +32,9 @@ async function loadPersonas() {
     personas = data.personas;
     activeId = data.default ?? personas[0]?.id;
     renderRoster();
+    if (window.avatarManager && activeId) {
+      window.avatarManager.switchPersona(activeId);
+    }
   } catch {
     // If this fails the server is down; the first send will surface the error.
   }
@@ -56,6 +59,11 @@ function switchPersona(id) {
   renderRoster();
   // One continuous session: keep the transcript, just mark who's taking over.
   addDivider(activePersona().displayName);
+  
+  if (window.avatarManager) {
+    window.avatarManager.switchPersona(id);
+  }
+  
   inputEl.focus();
 }
 
@@ -149,6 +157,10 @@ formEl.addEventListener("submit", async (e) => {
   const replyBody = addMessage("persona", "", persona.displayName);
   replyBody.parentElement.classList.add("cursor");
 
+  if (window.avatarManager) {
+    window.avatarManager.setTalking(true);
+  }
+
   let reply = "";
   let errored = false;
 
@@ -195,6 +207,10 @@ formEl.addEventListener("submit", async (e) => {
     // parentElement is null and this is a no-op.
     replyBody.parentElement?.classList.remove("cursor");
     setBusy(false);
+    
+    if (window.avatarManager) {
+      window.avatarManager.setTalking(false);
+    }
   }
 });
 

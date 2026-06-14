@@ -8,25 +8,32 @@
   </head>
   <body>
     <div class="app">
-      <header class="header">
-        <h1 class="title">My Council</h1>
-        <nav class="roster" id="roster" aria-label="Choose a persona"></nav>
-      </header>
+      <div class="avatar-container" id="avatar-container">
+        <img id="avatar-image" src="" alt="Avatar" />
+      </div>
+      
+      <div class="chat-container">
+        <header class="header">
+          <h1 class="title">My Council</h1>
+          <nav class="roster" id="roster" aria-label="Choose a persona"></nav>
+        </header>
 
-      <main class="chat" id="chat" aria-live="polite"></main>
+        <main class="chat" id="chat" aria-live="polite"></main>
 
-      <form class="composer" id="composer">
-        <textarea
-          id="input"
-          class="input"
-          placeholder="Speak."
-          rows="1"
-          autocomplete="off"
-        ></textarea>
-        <button type="submit" class="send" id="send">Send</button>
-      </form>
+        <form class="composer" id="composer">
+          <textarea
+            id="input"
+            class="input"
+            placeholder="Speak."
+            rows="1"
+            autocomplete="off"
+          ></textarea>
+          <button type="submit" class="send" id="send">Send</button>
+        </form>
+      </div>
     </div>
 
+    <script src="avatar.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

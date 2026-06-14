@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 import config
+from quality import is_low_value
 
 # --- Storage (loaded once at startup, reused for every request) ------------
 
@@ -63,12 +64,19 @@ def health():
 
 @app.post("/store")
 def store(req: StoreRequest):
+    # Don't persist low-value exchanges (greetings, "I don't know" non-answers).
+    # Keeping junk out of the pool is what stops it polluting / out-ranking real
+    # facts on retrieval. Conservative by design — see quality.py.
+    if config.STORE_FILTER_ENABLED and is_low_value(req.user_message, req.reply):
+        return {"ok": True, "stored": False, "reason": "low-value", "count": collection.count()}
+
     ts = req.timestamp or datetime.now(timezone.utc).isoformat()
 
-    # The embedded document holds BOTH sides of the exchange, so a future query
-    # can match on what the user said and on what the persona replied. The clean
-    # fields for attribution live in metadata.
-    document = f"User: {req.user_message}\n{req.persona_name}: {req.reply}"
+    # Embed the USER'S words as the retrieval key — that is what future queries
+    # (also user messages) match against. This weights retrieval toward what the
+    # user actually said, not the persona's phrasing or deflections. The full
+    # exchange (reply included) is preserved in metadata for recall/attribution.
+    document = req.user_message
 
     collection.add(
         ids=[str(uuid.uuid4())],
@@ -81,7 +89,7 @@ def store(req: StoreRequest):
             "reply": req.reply,
         }],
     )
-    return {"ok": True, "count": collection.count()}
+    return {"ok": True, "stored": True, "count": collection.count()}
 
 
 @app.post("/retrieve")

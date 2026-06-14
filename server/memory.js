@@ -53,12 +53,18 @@ export async function retrieve(query) {
 export async function store({ personaId, personaName, userMessage, reply }) {
   if (!enabled) return false;
   try {
-    await postJson("/store", {
+    const data = await postJson("/store", {
       persona_id: personaId,
       persona_name: personaName,
       user_message: userMessage,
       reply,
     });
+    // The service may decline to persist a low-value exchange (greeting,
+    // non-answer); that's a success, not an error — just note it.
+    if (data && data.stored === false) {
+      console.log("[memory] skipped low-value exchange (not stored)");
+      return false;
+    }
     return true;
   } catch (err) {
     console.warn(`[memory] store failed: ${err.message}`);

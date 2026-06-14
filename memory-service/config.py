@@ -18,6 +18,12 @@ COLLECTION_NAME = "council_memory"
 # This is THE place to tune retrieval breadth.
 DEFAULT_TOP_N = 4
 
+# Skip persisting low-value exchanges (content-free greetings, "I don't know"
+# non-answers) so junk can't pollute the pool or out-rank real facts on
+# retrieval. The heuristics live in quality.py and are deliberately conservative
+# (when unsure, store). Set False to store every exchange verbatim.
+STORE_FILTER_ENABLED = True
+
 # Local embedding model. ChromaDB's DefaultEmbeddingFunction runs
 # all-MiniLM-L6-v2 on CPU via onnxruntime — fully offline after a one-time
 # model download, and it keeps the GPU's VRAM free for Gemma.
