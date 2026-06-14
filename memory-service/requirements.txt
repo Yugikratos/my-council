@@ -1,0 +1,15 @@
+# My Council memory service — pinned for reproducibility.
+#
+# ChromaDB 1.x: the Rust-core rewrite ships prebuilt Windows wheels and dropped
+# the C++ `chroma-hnswlib` dependency, so installation needs NO Visual C++ build
+# tools (unlike the 0.5.x line). Its storage engine is also more robust for
+# persistence. Pins below are confirmed to install on a Python 3.12 venv
+# (Windows) and to pass the restart-persistence test. If you bump any pin,
+# re-run that test (write -> restart both services -> read).
+#
+# NOTE: requires a Python 3.12 venv. The system's Python 3.14 is too new for
+# these native dependencies (onnxruntime, tokenizers) to have prebuilt wheels.
+chromadb==1.5.9
+onnxruntime==1.26.0
+fastapi==0.115.6
+uvicorn==0.32.1

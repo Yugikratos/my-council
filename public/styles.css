@@ -95,6 +95,20 @@ body {
   text-transform: uppercase;
 }
 
+/* Non-fatal system notice (e.g. long-term memory unavailable). */
+.notice {
+  align-self: center;
+  max-width: 90%;
+  margin: 2px 0;
+  padding: 6px 12px;
+  background: #1d1a10;
+  border: 1px solid #4a4326;
+  border-radius: 8px;
+  color: #cdbf86;
+  font-size: 12px;
+  text-align: center;
+}
+
 /* Message list */
 .chat {
   flex: 1;

@@ -10,13 +10,42 @@
 import { getPersona } from "./personas/index.js";
 
 /**
+ * Render retrieved long-term memories as a single attributed reference block.
+ * These come from earlier SESSIONS (the ChromaDB pool). They follow the exact
+ * same rule as in-session other-persona turns: attributed by name, delivered as
+ * context, NEVER in the assistant role — so the active persona can refer to them
+ * without imitating another member's voice.
+ *
+ * @param {Array<{persona_name?: string, persona_id?: string, timestamp?: string,
+ *                user_message?: string, reply?: string}>} memories
+ * @returns {string}
+ */
+function formatMemories(memories) {
+  const lines = memories.map((m) => {
+    const date = (m.timestamp || "").slice(0, 10); // YYYY-MM-DD
+    const when = date ? `(${date}) ` : "";
+    const name = m.persona_name || m.persona_id || "another member";
+    return `- ${when}You said to ${name}: "${m.user_message}" — ${name} replied: "${m.reply}"`;
+  });
+  return (
+    "[Long-term memory — relevant moments from earlier sessions with the Council. " +
+    "This is shared context to inform your reply, not your own words unless attributed " +
+    "to you. You may refer to it naturally.]\n" +
+    lines.join("\n")
+  );
+}
+
+/**
  * @param {{id: string, displayName: string, systemPrompt: string}} persona
  *        the ACTIVE persona — the one who must speak now.
  * @param {Array<{role: string, content: string, persona?: string}>} log
  *        the running session log (each assistant turn tagged with who said it).
+ * @param {Array<object>} [memories]
+ *        retrieved long-term memories (from server/memory.js); injected as
+ *        attributed reference context, never as assistant turns.
  * @returns {Array<{role: string, content: string}>} messages for Ollama.
  */
-export function buildOllamaMessages(persona, log) {
+export function buildOllamaMessages(persona, log, memories = []) {
   // Did any OTHER member speak earlier in this session?
   const fromOthers = log.some(
     (m) => m.role === "assistant" && m.persona && m.persona !== persona.id
@@ -38,6 +67,13 @@ export function buildOllamaMessages(persona, log) {
   // Convert each logged turn. Other members' turns become user-side context;
   // the active persona's own turns stay clean assistant turns.
   const turns = [];
+
+  // Long-term memories lead, as user-side reference context (never assistant).
+  // The merge step below folds this into the first real user turn.
+  if (memories && memories.length) {
+    turns.push({ role: "user", content: formatMemories(memories) });
+  }
+
   for (const m of log) {
     if (m.role === "user") {
       turns.push({ role: "user", content: m.content });

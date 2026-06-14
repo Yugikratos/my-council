@@ -82,7 +82,7 @@ A local-first desktop AI companion app where six anime/gaming character personas
 
 &#x20; - Model stored on `D:\\OllamaModels`, 8k context length
 
-\- \*\*Memory:\*\* MemPalace (local, semantic search, verbatim storage; ChromaDB + PyYAML)
+\- \*\*Memory:\*\* Local ChromaDB — verbatim storage + semantic retrieval — wrapped by a small local FastAPI service the Node app calls over localhost (see "Memory engine" decision below). \*Not\* MemPalace.
 
 \- \*\*TTS (Phase 2):\*\* Piper or Coqui — local, free, voices matched per persona
 
@@ -110,7 +110,17 @@ Start with Gemma running entirely on the machine — zero token cost, full priva
 
 \### Memory: verbatim storage + semantic retrieval (not summarization)
 
-MemPalace stores conversations verbatim and retrieves only the semantically relevant chunks per message. This is the key cost/quality lever: it gives effectively unlimited long-term memory WITHOUT needing a large context window. That's why 8k context is fine — long-term memory lives in MemPalace, not in the context window. This also matters if cloud APIs are ever added: retrieving only relevant chunks keeps token usage (and cost) low instead of replaying full history every call.
+The memory layer stores conversations verbatim and retrieves only the semantically relevant chunks per message. This is the key cost/quality lever: it gives effectively unlimited long-term memory WITHOUT needing a large context window. That's why a small context is fine (we run 4k to keep the 4B model + KV cache within the GTX 1650's 4GB VRAM) — long-term memory lives in the vector store, not in the context window. This also matters if cloud APIs are ever added: retrieving only relevant chunks keeps token usage (and cost) low instead of replaying full history every call.
+
+
+
+\### Memory engine: ChromaDB directly, not MemPalace (decided)
+
+CLAUDE.md originally named MemPalace. After evaluation we build directly on \*\*ChromaDB\*\* instead. Reasons: (1) MemPalace is designed primarily as an MCP tool for AI clients, not a library to embed inside an app like this; (2) it currently has a critical write-flush bug on recent ChromaDB versions; (3) it is effectively a thin wrapper around ChromaDB, which is what it uses under the hood anyway. The memory \*design\* from CLAUDE.md is unchanged (one shared pool, verbatim storage, semantic retrieval, persona+timestamp tags) — only the underlying library differs.
+
+Implementation: a small local \*\*Python FastAPI service\*\* (`memory-service/`) wraps a ChromaDB `PersistentClient` and exposes `POST /store`, `POST /retrieve`, `GET /health`. The Node/Express app calls it over localhost (chosen over per-call Python subprocesses so the embedding model + DB client load once, and over Chroma's own server to keep embeddings local in Python). Embeddings use the local all-MiniLM-L6-v2 (ONNX, CPU) — no cloud, and the GPU stays free for Gemma. ChromaDB is version-pinned and persistence is verified by a restart test. Runs on a dedicated Python 3.12 venv (the machine's Python 3.14 is too new for ChromaDB's native deps to have prebuilt Windows wheels).
+
+Critical reuse: retrieved memories from other personas are injected as \*attributed reference context\* (e.g. 'In an earlier session, [Kratos] said: "…"'), never in the assistant role — the same rule that fixed in-session voice-bleed (`server/context.js`), so the memory layer cannot reintroduce that bug.
 
 
 

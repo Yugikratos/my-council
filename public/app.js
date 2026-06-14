@@ -168,6 +168,13 @@ formEl.addEventListener("submit", async (e) => {
         reply += event.value;
         replyBody.textContent = reply;
         scrollToBottom();
+      } else if (event.type === "notice") {
+        // Non-fatal info (e.g. memory unavailable) — show above the reply bubble.
+        const n = document.createElement("div");
+        n.className = "notice";
+        n.textContent = event.message;
+        chatEl.insertBefore(n, replyBody.parentElement);
+        scrollToBottom();
       } else if (event.type === "error") {
         errored = true;
         showError(replyBody, event.message);

@@ -2,3 +2,11 @@ node_modules/
 npm-debug.log*
 .env
 .DS_Store
+
+# Python memory service
+.venv/
+__pycache__/
+*.pyc
+
+# Local memory data (ChromaDB) — never commit conversation memory
+memory-service/chroma-data/
