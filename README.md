@@ -44,7 +44,7 @@ my-council/
 │   ├── app.py             # FastAPI: /store, /retrieve, /health
 │   ├── config.py          # Python-side config (N, data path, port, model)
 │   ├── requirements.txt   # pinned deps (ChromaDB etc.)
-│   └── chroma-data/        # persisted memory (created at runtime; gitignored)
+│   └── chroma-data/       # persisted memory (created at runtime; gitignored)
 └── public/                # chat UI (index.html, styles.css, app.js)
 ```
 
