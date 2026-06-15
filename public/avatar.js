@@ -24,14 +24,20 @@ class AvatarManager {
   }
 
   // Toggles the talking/generating animation state
-  setTalking(isTalking) {
+  setTalking(isTalking, isDeep = false) {
     this.isTalking = isTalking;
     if (!this.containerEl) return;
     
     if (isTalking) {
       this.containerEl.classList.add("talking");
+      if (isDeep) {
+        this.containerEl.classList.add("deep-generating");
+      } else {
+        this.containerEl.classList.remove("deep-generating");
+      }
     } else {
       this.containerEl.classList.remove("talking");
+      this.containerEl.classList.remove("deep-generating");
     }
   }
 }

@@ -9,6 +9,13 @@
   --text: #e6e3df;
   --muted: #8a8a8a;
   --accent: #a23b2d;
+  
+  /* Deep Mode Variables */
+  --deep-accent: #3a5ccc;
+  --deep-bg: #131722;
+  --deep-border: #1f3780;
+  --deep-glow: rgba(58, 92, 204, 0.4);
+  --deep-glow-active: rgba(58, 92, 204, 0.8);
 }
 
 * {
@@ -276,3 +283,98 @@ body {
     opacity: 0;
   }
 }
+
+/* Deep Mode Specific Layout & Styling */
+
+/* Tip Bar above composer */
+.composer-tip {
+  padding: 8px 22px;
+  background: var(--panel);
+  border-top: 1px solid #25282c;
+  color: var(--muted);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.3px;
+}
+
+.composer-tip .deep-trigger {
+  color: #8ca4f5;
+  background: rgba(58, 92, 204, 0.15);
+  border: 1px dashed rgba(58, 92, 204, 0.4);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+}
+
+.composer-tip .deep-trigger:hover {
+  background: rgba(58, 92, 204, 0.3);
+  border-color: #8ca4f5;
+  color: #fff;
+  box-shadow: 0 0 8px var(--deep-glow);
+}
+
+/* Glowing text area border when typing deep command */
+.input.deep-active:focus {
+  border-color: var(--deep-accent);
+  box-shadow: 0 0 8px var(--deep-glow);
+}
+
+/* Avatar Talking pulse in Deep Mode */
+.avatar-container.talking.deep-generating::after {
+  box-shadow: inset 0 0 40px var(--deep-glow-active);
+  animation: pulseGlowDeep 2s ease-in-out infinite;
+}
+
+@keyframes pulseGlowDeep {
+  0%, 100% { box-shadow: inset 0 0 30px var(--deep-glow); }
+  50% { box-shadow: inset 0 0 60px var(--deep-glow-active); }
+}
+
+/* Deep User Bubble */
+.msg.user.deep {
+  background: #1d2535;
+  border-bottom-right-radius: 2px;
+  box-shadow: 0 0 15px var(--deep-glow);
+  border-right: 2px solid var(--deep-accent);
+}
+
+/* Deep Persona Bubble */
+.msg.persona.deep {
+  background: var(--deep-bg);
+  border-left: 3px solid var(--deep-accent);
+  box-shadow: 0 0 15px var(--deep-glow);
+}
+
+/* Deep Mode Badges */
+.deep-badge {
+  background: rgba(58, 92, 204, 0.2);
+  border: 1px solid var(--deep-border);
+  color: #8ca4f5;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 1.5px 5px;
+  border-radius: 4px;
+  margin-left: 8px;
+  display: inline-block;
+  vertical-align: middle;
+  box-shadow: 0 0 5px rgba(58, 92, 204, 0.3);
+  animation: badgeGlow 3s ease-in-out infinite;
+}
+
+@keyframes badgeGlow {
+  0%, 100% { box-shadow: 0 0 5px rgba(58, 92, 204, 0.3); }
+  50% { box-shadow: 0 0 10px rgba(58, 92, 204, 0.6); }
+}
+
+/* Blink cursor for deep streaming replies */
+.msg.persona.deep.cursor::after {
+  color: var(--deep-accent);
+}
+

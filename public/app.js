@@ -121,11 +121,32 @@ function showError(body, message) {
   scrollToBottom();
 }
 
-// Auto-grow the textarea as you type.
+// Auto-grow the textarea as you type, and toggle deep-active styling if "/deep" is typed.
 inputEl.addEventListener("input", () => {
   inputEl.style.height = "auto";
   inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
+  
+  if (inputEl.value.trim().startsWith("/deep")) {
+    inputEl.classList.add("deep-active");
+  } else {
+    inputEl.classList.remove("deep-active");
+  }
 });
+
+// Click affordance to prepend /deep to composer.
+const deepTrigger = document.getElementById("deep-trigger");
+if (deepTrigger) {
+  deepTrigger.addEventListener("click", () => {
+    const val = inputEl.value.trim();
+    if (!val.startsWith("/deep")) {
+      inputEl.value = "/deep " + inputEl.value.trim();
+      inputEl.value = inputEl.value.trim() + " "; // Add extra space
+    }
+    inputEl.classList.add("deep-active");
+    inputEl.focus();
+    inputEl.dispatchEvent(new Event("input"));
+  });
+}
 
 // Enter sends; Shift+Enter inserts a newline.
 inputEl.addEventListener("keydown", (e) => {
@@ -145,12 +166,28 @@ formEl.addEventListener("submit", async (e) => {
   const persona = activePersona();
   if (!persona) return; // personas haven't loaded yet
 
+  // Detect if this is a deep turn
+  const isDeep = text.startsWith("/deep");
+  const displayMsg = isDeep ? text.slice(5).trim() : text;
+
   // Show and record the user's message.
-  addMessage("user", text);
+  const userMsgBody = addMessage("user", displayMsg);
+  if (isDeep) {
+    userMsgBody.parentElement.classList.add("deep");
+    const badge = document.createElement("span");
+    badge.className = "deep-badge";
+    badge.textContent = "Deep Query";
+    const whoEl = userMsgBody.parentElement.querySelector(".who");
+    if (whoEl) {
+      whoEl.after(badge);
+    }
+  }
+
   history.push({ role: "user", content: text });
 
   inputEl.value = "";
   inputEl.style.height = "auto";
+  inputEl.classList.remove("deep-active");
   setBusy(true);
 
   // Placeholder bubble for the streaming reply, labeled with the active persona.
@@ -158,7 +195,7 @@ formEl.addEventListener("submit", async (e) => {
   replyBody.parentElement.classList.add("cursor");
 
   if (window.avatarManager) {
-    window.avatarManager.setTalking(true);
+    window.avatarManager.setTalking(true, isDeep);
   }
 
   let reply = "";
@@ -176,6 +213,29 @@ formEl.addEventListener("submit", async (e) => {
     }
 
     await readStream(res, (event) => {
+      // --- CLOUD-REPLY SIGNAL HOOK ---
+      // The backend agent will emit a signal indicating a cloud reply.
+      // Driven by that signal, we style the reply bubble as "deep".
+      //
+      // PLUG IN THE CONFIRMED BACKEND EVENT SHAPE HERE.
+      // Example: event.type === "cloud-reply" OR event.isCloud === true
+      // For local testing, we also treat it as a cloud reply if the query started with /deep.
+      const isCloudReply = (event.type === "cloud-reply") || (event.isCloud === true) || (isDeep);
+      if (isCloudReply) {
+        replyBody.parentElement.classList.add("deep");
+        if (!replyBody.parentElement.querySelector(".deep-badge")) {
+          const badge = document.createElement("span");
+          badge.className = "deep-badge";
+          badge.textContent = "Deep Mind";
+          const whoEl = replyBody.parentElement.querySelector(".who");
+          if (whoEl) {
+            whoEl.after(badge);
+          } else {
+            replyBody.parentElement.prepend(badge);
+          }
+        }
+      }
+
       if (event.type === "token") {
         reply += event.value;
         replyBody.textContent = reply;
