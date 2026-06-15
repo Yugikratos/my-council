@@ -9,9 +9,14 @@ import { dirname, join } from "node:path";
 
 import { config } from "./config.js";
 import { streamChat, OllamaUnavailableError } from "./ollama.js";
+import { openCloudStream } from "./cloud.js";
 import { getPersona, listPersonas, DEFAULT_PERSONA_ID } from "./personas/index.js";
 import { buildOllamaMessages } from "./context.js";
 import { retrieve, store } from "./memory.js";
+
+// A turn routes to the optional cloud tier only when prefixed with "/deep".
+// Kept here as the single, obvious routing rule.
+const DEEP_MARKER = /^\/deep\b[ \t]*/i;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(__dirname, "..", "public");
@@ -49,15 +54,31 @@ app.post("/api/chat", async (req, res) => {
 
   // The latest user message drives both the reply and memory retrieval.
   const latestUser = [...messages].reverse().find((m) => m.role === "user");
-  const query = latestUser?.content ?? "";
+  const rawLatest = latestUser?.content ?? "";
+
+  // --- Routing decision (the ONE place it's made) ---------------------------
+  // "/deep ..." routes this turn to the cloud tier (Gemini); everything else
+  // stays on local Gemma. Strip the marker so the persona never sees it, and use
+  // the cleaned text everywhere downstream (prompt, retrieval, storage). The
+  // persona, context, grounding, and memory are identical either way — only the
+  // model behind the reply changes.
+  const routeToCloud = DEEP_MARKER.test(rawLatest.trimStart());
+  const query = routeToCloud ? rawLatest.trimStart().replace(DEEP_MARKER, "") : rawLatest;
+
+  // If a marker was stripped, rebuild the message list with the cleaned latest
+  // user turn so context.js and the model get the real question, not "/deep ...".
+  const promptMessages =
+    routeToCloud && latestUser
+      ? messages.map((m) => (m === latestUser ? { ...m, content: query } : m))
+      : messages;
 
   // Retrieve relevant memories from earlier sessions (fails soft).
   const { ok: memoryOk, memories } = await retrieve(query);
 
-  // Build the message list for Ollama: the persona's character sheet, retrieved
-  // long-term memories as attributed context, then the in-session conversation
-  // (with other Council members' turns attributed by name).
-  const fullMessages = buildOllamaMessages(persona, messages, memories);
+  // Build the message list: the persona's character sheet, retrieved long-term
+  // memories as attributed context, then the in-session conversation (with other
+  // Council members' turns attributed by name). The SAME list feeds either model.
+  const fullMessages = buildOllamaMessages(persona, promptMessages, memories);
 
   // Open a Server-Sent Events stream to the browser.
   res.setHeader("Content-Type", "text/event-stream");
@@ -79,18 +100,49 @@ app.post("/api/chat", async (req, res) => {
 
   let reply = "";
   let completed = false;
-  try {
-    for await (const token of streamChat(fullMessages)) {
-      // Clean token of asterisks, double quotes (straight and curly), and opening single curly quote.
-      // We preserve apostrophes (') and closing single curly quotes (’) to keep English contractions intact.
-      const cleanToken = token.replace(/[\*"“”‘]/g, "");
+  // Which model actually produced the reply, reported to the UI in the "done"
+  // event (carries no sensitive data). Starts as the routed choice; flips to
+  // "local" if the cloud call fails before any token and we fall back.
+  let source = routeToCloud ? "cloud" : "local";
+  let producedTokens = 0;
+
+  // Clean each token of asterisks, double quotes (straight and curly), and the
+  // opening single curly quote; preserve apostrophes (') and closing curly quote
+  // (’) so English contractions survive. Same rule for both local and cloud.
+  const pushToken = (token) => {
+    const cleanToken = token.replace(/[\*"“”‘]/g, "");
+    if (cleanToken) {
       reply += cleanToken;
-      if (cleanToken) {
-        send({ type: "token", value: cleanToken });
+      producedTokens++;
+      send({ type: "token", value: cleanToken });
+    }
+  };
+
+  try {
+    if (routeToCloud) {
+      try {
+        const cloudStream = await openCloudStream(fullMessages);
+        for await (const token of cloudStream) pushToken(token);
+      } catch (cloudErr) {
+        // If the cloud already streamed part of a reply, we can't cleanly restart
+        // — let the outer handler report it. Otherwise fall back to local Gemma
+        // for this turn so the user's message is never lost. The key never
+        // appears in cloudErr (sanitized in cloud.js); log only a category.
+        if (producedTokens > 0) throw cloudErr;
+        console.warn(`[cloud] unavailable (${cloudErr?.code ?? "error"}); using local model`);
+        send({
+          type: "notice",
+          message: "Deep mode (cloud) was unavailable — answered with the local model instead.",
+        });
+        source = "local";
+        reply = "";
+        for await (const token of streamChat(fullMessages)) pushToken(token);
       }
+    } else {
+      for await (const token of streamChat(fullMessages)) pushToken(token);
     }
     completed = true;
-    send({ type: "done" });
+    send({ type: "done", source });
   } catch (err) {
     if (err instanceof OllamaUnavailableError) {
       send({
@@ -101,9 +153,11 @@ app.post("/api/chat", async (req, res) => {
           "pulled (`ollama pull gemma3:4b`), then try again.",
       });
     } else {
+      // Generic on purpose — never surface a raw upstream error (defends against
+      // any chance of leaking sensitive request detail).
       send({
         type: "error",
-        message: err.message || "Something went wrong talking to the model.",
+        message: "Something went wrong generating the reply. Please try again.",
       });
     }
   } finally {

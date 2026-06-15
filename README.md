@@ -35,8 +35,10 @@ my-council/
 ├── start-all.ps1          # launch both services (memory + app) in one go
 ├── server/
 │   ├── index.js           # Express server: serves the UI + POST /api/chat
-│   ├── config.js          # Node-side config (Ollama, port, memory URL)
+│   ├── config.js          # Node-side config (Ollama, port, memory, cloud)
+│   ├── env.js             # loads a gitignored .env (zero-dependency)
 │   ├── ollama.js          # Ollama client: streams /api/chat responses
+│   ├── cloud.js           # Gemini client for /deep turns (key from env only)
 │   ├── context.js         # builds the prompt (attribution + memory injection)
 │   ├── memory.js          # Node client for the memory service (fails soft)
 │   └── personas/          # one character sheet per persona + registry
@@ -116,6 +118,58 @@ npm run dev                 # auto-restart the app on file changes
 $env:MEMORY_ENABLED="false"; npm start   # run the app with memory off
 ```
 
+## Hybrid cloud — `/deep` (optional)
+
+Local Gemma handles every message by default. For a moment that needs more depth,
+prefix your message with **`/deep`** and that one turn is routed to Google
+**Gemini** (free tier) instead — same persona, same memory, same voice rules;
+only the model behind the reply is stronger. Everything else stays local.
+
+It is fully optional and **degrades gracefully**: if no key is set (or the cloud
+call fails for any reason — rate limit, network, auth), the turn falls back to
+local Gemma and the chat shows a short notice. Normal local chat never depends on
+it and never crashes if it's missing.
+
+### Set your Gemini API key (PowerShell)
+
+Get a free key at <https://aistudio.google.com/apikey>, then pick one option.
+
+**Option A — a local `.env` file (recommended; gitignored):**
+
+```powershell
+Copy-Item .env.example .env
+# then edit .env and set:  GEMINI_API_KEY=your-key-here
+```
+
+**Option B — an environment variable:**
+
+```powershell
+# this PowerShell session only:
+$env:GEMINI_API_KEY = "your-key-here"
+
+# OR persist it for your user (reopen the terminal afterwards):
+setx GEMINI_API_KEY "your-key-here"
+```
+
+> **Security.** The key is read only from the environment / `.env` (never
+> hardcoded), is sent only to Google's official HTTPS endpoint via a request
+> header, and is never logged, shown in the UI, or included in any error. `.env`
+> and `.env.*` are gitignored; only `.env.example` (a placeholder) is committed.
+> This repo is public — keep secrets out of it.
+
+### Use it
+
+Send a normal message for local Gemma, or start a message with `/deep`:
+
+```
+/deep What does it really mean to forgive someone who never apologised?
+```
+
+The `/deep` marker is stripped before the persona sees it, so a `/deep` message
+to Kratos is still answered by **Kratos**, with the same memory and grounding.
+The reply is stored to memory exactly like a local one. If cloud mode is
+unavailable you'll get the local answer plus a one-line notice.
+
 ## Persistence test (prove memory survives a restart and is shared)
 
 1. Start both services (`.\start-all.ps1`) and open http://localhost:3000.
@@ -139,13 +193,20 @@ Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing | Select-Object 
 
 **Node side** — [`server/config.js`](./server/config.js) (env-overridable):
 
-| Setting        | Env var          | Default                  |
-| -------------- | ---------------- | ------------------------ |
-| Server port    | `PORT`           | `3000`                   |
-| Ollama URL     | `OLLAMA_URL`     | `http://localhost:11434` |
-| Ollama model   | `OLLAMA_MODEL`   | `gemma3:4b`              |
-| Memory URL     | `MEMORY_URL`     | `http://127.0.0.1:8000`  |
-| Memory on/off  | `MEMORY_ENABLED` | `true`                   |
+| Setting        | Env var          | Default                       |
+| -------------- | ---------------- | ----------------------------- |
+| Server port    | `PORT`           | `3000`                        |
+| Ollama URL     | `OLLAMA_URL`     | `http://localhost:11434`      |
+| Ollama model   | `OLLAMA_MODEL`   | `gemma3:4b`                   |
+| Memory URL     | `MEMORY_URL`     | `http://127.0.0.1:8000`       |
+| Memory on/off  | `MEMORY_ENABLED` | `true`                        |
+| Cloud on/off   | `CLOUD_ENABLED`  | `true`                        |
+| Gemini model   | `GEMINI_MODEL`   | `gemini-1.5-flash`            |
+| Gemini API key | `GEMINI_API_KEY` | _(unset — required for_ `/deep`_)_ |
+
+> The Gemini API key is read **only** from the environment or a gitignored
+> `.env` — never hardcoded, never stored in `config.js`. See
+> [Hybrid cloud — `/deep`](#hybrid-cloud--deep-optional).
 
 **Python side** — [`memory-service/config.py`](./memory-service/config.py):
 retrieval breadth **N** (`DEFAULT_TOP_N`, default 4), data path, collection

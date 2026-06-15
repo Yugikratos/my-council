@@ -1,6 +1,12 @@
 node_modules/
 npm-debug.log*
+
+# Secrets — never commit. .env holds GEMINI_API_KEY etc.; .env.example is the
+# tracked placeholder template (no real secrets) and is explicitly kept.
 .env
+.env.*
+!.env.example
+
 .DS_Store
 
 # Python memory service
