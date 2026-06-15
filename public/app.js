@@ -293,5 +293,15 @@ async function readStream(res, onEvent) {
   }
 }
 
+// Toggle collapse/expand of the chat panel.
+const toggleBtn = document.getElementById("chat-toggle");
+const appContainer = document.querySelector(".app");
+
+if (toggleBtn && appContainer) {
+  toggleBtn.addEventListener("click", () => {
+    appContainer.classList.toggle("collapsed");
+  });
+}
+
 // Boot: load the roster, then focus the input.
 loadPersonas().finally(() => inputEl.focus());
