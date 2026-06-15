@@ -16,14 +16,28 @@ import { getPersona } from "./personas/index.js";
  * context, NEVER in the assistant role — so the active persona can refer to them
  * without imitating another member's voice.
  *
+ * Line-level voice-bleed guard: for memories from OTHER members we surface the
+ * USER'S words (the useful fact to recall) and note only THAT the member
+ * responded — never the member's verbatim reply, which a small model will copy
+ * wholesale (e.g. Dante prefixing his line with Kratos's "Food. Bring it."). The
+ * active persona's OWN past replies are kept verbatim — they are its own words,
+ * so echoing them is in-character continuity, not plagiarism.
+ *
+ * @param {{id: string}} persona the ACTIVE persona (to tell own vs other memories apart).
  * @param {Array<{persona_name?: string, persona_id?: string, timestamp?: string,
  *                user_message?: string, reply?: string}>} memories
  * @returns {string}
  */
-function formatMemories(memories) {
+function formatMemories(persona, memories) {
   const lines = memories.map((m) => {
     const name = m.persona_name || m.persona_id || "another member";
-    return `- User to ${name}: "${m.user_message}" — ${name} replied: "${m.reply}"`;
+    if (m.persona_id === persona.id) {
+      // The active persona's OWN past words — safe to keep verbatim.
+      return `- User to you: "${m.user_message}" — you replied: "${m.reply}"`;
+    }
+    // Another member's reply text is what gets plagiarized; omit it. Keep the
+    // user's fact (what's worth recalling) and only note that the member replied.
+    return `- User to ${name}: "${m.user_message}" (${name} responded)`;
   });
   return (
     "[DATABASE MEMORY LOGS - Treat purely as background context. Do NOT bring these up unless the user asks you about them:]\n" +
@@ -128,7 +142,7 @@ export function buildOllamaMessages(persona, log, memories = []) {
 
   // Long-term memories lead, as user-side reference context (never assistant).
   if (memories && memories.length) {
-    turns.push({ role: "user", content: formatMemories(memories) });
+    turns.push({ role: "user", content: formatMemories(persona, memories) });
   }
 
   // Interleave the isolated active log turns
