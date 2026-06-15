@@ -193,6 +193,16 @@ formEl.addEventListener("submit", async (e) => {
   // Placeholder bubble for the streaming reply, labeled with the active persona.
   const replyBody = addMessage("persona", "", persona.displayName);
   replyBody.parentElement.classList.add("cursor");
+  if (isDeep) {
+    replyBody.parentElement.classList.add("deep");
+    const badge = document.createElement("span");
+    badge.className = "deep-badge";
+    badge.textContent = "Deep Mind";
+    const whoEl = replyBody.parentElement.querySelector(".who");
+    if (whoEl) {
+      whoEl.after(badge);
+    }
+  }
 
   if (window.avatarManager) {
     window.avatarManager.setTalking(true, isDeep);
@@ -213,29 +223,6 @@ formEl.addEventListener("submit", async (e) => {
     }
 
     await readStream(res, (event) => {
-      // --- CLOUD-REPLY SIGNAL HOOK ---
-      // The backend agent will emit a signal indicating a cloud reply.
-      // Driven by that signal, we style the reply bubble as "deep".
-      //
-      // PLUG IN THE CONFIRMED BACKEND EVENT SHAPE HERE.
-      // Example: event.type === "cloud-reply" OR event.isCloud === true
-      // For local testing, we also treat it as a cloud reply if the query started with /deep.
-      const isCloudReply = (event.type === "cloud-reply") || (event.isCloud === true) || (isDeep);
-      if (isCloudReply) {
-        replyBody.parentElement.classList.add("deep");
-        if (!replyBody.parentElement.querySelector(".deep-badge")) {
-          const badge = document.createElement("span");
-          badge.className = "deep-badge";
-          badge.textContent = "Deep Mind";
-          const whoEl = replyBody.parentElement.querySelector(".who");
-          if (whoEl) {
-            whoEl.after(badge);
-          } else {
-            replyBody.parentElement.prepend(badge);
-          }
-        }
-      }
-
       if (event.type === "token") {
         reply += event.value;
         replyBody.textContent = reply;
@@ -250,6 +237,25 @@ formEl.addEventListener("submit", async (e) => {
       } else if (event.type === "error") {
         errored = true;
         showError(replyBody, event.message);
+      } else if (event.type === "done") {
+        // --- CLOUD-REPLY SIGNAL HOOK ---
+        // The backend agent finalized the event shape. The "done" event carries
+        // a "source" field: "cloud" | "local".
+        // If "cloud", we style the reply bubble as "deep". If "local" (e.g. cloud fallback),
+        // we strip the deep mode styles.
+        if (event.source === "cloud") {
+          replyBody.parentElement.classList.add("deep");
+          if (!replyBody.parentElement.querySelector(".deep-badge")) {
+            const badge = document.createElement("span");
+            badge.className = "deep-badge";
+            badge.textContent = "Deep Mind";
+            const whoEl = replyBody.parentElement.querySelector(".who");
+            if (whoEl) whoEl.after(badge);
+          }
+        } else if (event.source === "local") {
+          replyBody.parentElement.classList.remove("deep");
+          replyBody.parentElement.querySelector(".deep-badge")?.remove();
+        }
       }
     });
 
