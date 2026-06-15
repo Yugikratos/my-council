@@ -244,6 +244,24 @@ body {
   gap: 14px;
 }
 
+/* Custom Sleek Scrollbar */
+.chat::-webkit-scrollbar {
+  width: 5px;
+}
+
+.chat::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat::-webkit-scrollbar-thumb {
+  background: #2a3034;
+  border-radius: 999px;
+}
+
+.chat::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
 .msg {
   max-width: 78%;
   padding: 11px 14px;
