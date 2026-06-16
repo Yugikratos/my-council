@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local-first desktop AI companion — the Council. MVP step 1: a single persona (Kratos) chatting end-to-end through local Ollama.",
+  "description": "Local-first desktop AI companion — the Council. Six personas share one memory and run on local Ollama (Gemma 3 4B), with an optional /deep Gemini turn and an Electron desktop widget.",
   "main": "main.js",
   "scripts": {
     "start": "node server/index.js",

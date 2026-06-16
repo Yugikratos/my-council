@@ -64,9 +64,11 @@ To support Text-to-Speech (TTS) integration, the system prompts and context inje
 
 - **Local LLM:** Gemma 3 4B via Ollama — daily workhorse, free, runs offline
   - Model stored on `D:\OllamaModels`, run at 4k context length (see VRAM note under Target Hardware)
+- **Cloud LLM (optional):** Google Gemini free tier, reached only via the manual `/deep` trigger; one turn at a time, with automatic fallback to local Gemma. Key read from env / a gitignored `.env` only (see Hybrid cloud strategy).
 - **Memory:** Local ChromaDB — verbatim storage + semantic retrieval — wrapped by a small local FastAPI service the Node app calls over localhost (see the "Memory engine" decision below). *Not* MemPalace.
 - **TTS (Phase 2):** Piper or Coqui — local, free, voices matched per persona
-- **Frontend:** React (avatar UI / desktop widget); Electron for desktop presence (TBD)
+- **Frontend:** Plain HTML/CSS/JS served by Express — no React, no build step. The avatar UI + chat widget are hand-written (React was dropped as unnecessary overhead for a single-window local app).
+- **Desktop shell:** Electron (`main.js`) — **implemented** (was TBD). A frameless, transparent, always-on-top window renders the active persona as a draggable desktop companion. It starts the Express server in-process if its port is free, or hooks an already-running one.
 - **Backend:** Node.js
 - **DB / store:** SQLite + local vector store for conversation persistence (provided by ChromaDB)
 - **Version control:** Git + GitHub (public repo: `my-council`)
@@ -94,15 +96,17 @@ Critical reuse: retrieved memories from other personas are injected as *attribut
 
 Closest existing projects: Mimir's Memory Hub (multi-character, but SEPARATE memory per character), Open-LLM-VTuber (avatar + memory, single-character focus), PersonAi (multi-persona, no shared memory layer). My Council's unique combination = one shared memory pool across all personas + personas aware of each other + desktop avatar presence. Study those repos for architecture patterns, but the shared-memory-with-awareness design is the original part.
 
-### Hybrid cloud strategy (Phase 2, optional)
+### Hybrid cloud strategy (first slice implemented)
 
-If/when cloud is added, the intended tiering:
+The intended tiering:
 
 - Gemma 3 4B (local) handles the bulk of daily conversation — free
 - Gemini free tier as a no-cost quality booster when local falls short (note: Gemini Pro web subscription does NOT include API; only the separate free API tier does)
 - Claude API only for rare deep/complex moments — pay-per-token, used sparingly
 - Open question the user is leaning toward: possibly drop Claude entirely to avoid any spend, running local + Gemini free only. Decide after living with local-only.
 - Cost note that drove this: full Sonnet replaying history daily for a 30-min chat would run ~$30–60/mo (over budget); hybrid keeps it near-free.
+
+**Status (implemented):** a manual **`/deep`** trigger now routes a single turn to the Gemini free tier (`server/cloud.js`), with automatic fallback to local Gemma on *any* failure (no key, rate limit, network, auth). Same persona, same memory, same voice rules — only the model behind that one reply is stronger, and the exchange is stored to memory like any other. Security posture: the key is read only from env / a gitignored `.env`, sent only to Google's official HTTPS endpoint via a request header, and never logged, returned, or shown in the UI. Claude is **not** wired in yet (leaning toward local + Gemini-free only). Still manual-only — auto-routing when local quality is low is a future step. See README → "Hybrid cloud — `/deep`".
 
 ### Per-persona model assignment (future idea)
 
@@ -114,6 +118,7 @@ Eventually each persona could map to a different model tier matching their chara
 - Avatar sits in a corner of the desktop (pixelated or anime style both acceptable)
 - Start static or minimal idle animation; richer talking-sync animation is Phase 2
 - Don't over-invest in animation before the core chat + memory loop works
+- **Status (implemented):** static per-persona portraits (`public/avatars/<id>.png`) render in the Electron widget via `public/avatar.js` (`AvatarManager`). They fade-swap on persona switch and pulse while a reply is generating — with a distinct pulse for `/deep` cloud turns. The window is frameless/transparent/always-on-top, the avatar is drag-to-move, and 💬 collapses/expands the chat panel. Richer talking-sync (lip/mouth) animation remains Phase 2.
 
 ### Voices
 
@@ -138,30 +143,33 @@ Eventually each persona could map to a different model tier matching their chara
 
 ## MVP Scope (build in this order)
 
-1. Project scaffolding
-2. **START HERE:** single persona chatting end-to-end through Ollama (text only)
-3. Persona system prompts for all six
-4. Shared memory integration (ChromaDB — shared pool + retrieval; see "Memory engine" decision)
-5. Persona switching
-6. Desktop avatar rendering (static → minimal idle animation)
-7. Local TTS per persona
+Steps 1–6 are done; step 7 (local TTS) is the remaining MVP item.
+
+1. ✅ Project scaffolding
+2. ✅ Single persona chatting end-to-end through Ollama (text only)
+3. ✅ Persona system prompts for all six
+4. ✅ Shared memory integration (ChromaDB — shared pool + retrieval; see "Memory engine" decision)
+5. ✅ Persona switching
+6. ✅ Desktop avatar rendering — static portraits + minimal idle/talking pulse, in an Electron widget
+7. ⬜ Local TTS per persona
 
 ## Phase 2 (later)
 
-- Richer avatar animations, talking sync
+- Richer avatar animations, talking sync (a basic generate-time pulse already ships)
 - Voice input / wake word
 - Mood tracking across personas
 - Multi-persona group conversations
-- Optional cloud tier (Gemini free / Claude) per hybrid strategy above
+- Optional cloud tier — **first slice done:** manual `/deep` → Gemini free tier (see Hybrid cloud strategy above). Still open: a Claude tier, and auto-routing instead of the manual trigger
 - Per-persona model assignment
 - Persona customization UI
 
 ## Estimated Effort
 
-Medium complexity. Core building blocks already exist (Ollama, ChromaDB, local TTS, React). Main work is wiring them together + avatar UI + shared-memory/awareness logic. Rough estimate: ~2–3 weeks focused for a solid MVP (chat, memory, persona switching, basic animation), then ~1 month of polish and consistency tuning.
+Medium complexity. Core building blocks already exist (Ollama, ChromaDB, local TTS, Electron). Main work is wiring them together + avatar UI + shared-memory/awareness logic. Rough estimate: ~2–3 weeks focused for a solid MVP (chat, memory, persona switching, basic animation), then ~1 month of polish and consistency tuning.
 
 ## Explicitly NOT doing yet
 
 - No MCP (not needed for local MVP)
-- No cloud APIs in MVP — fully local first
 - No productivity/task features yet — companion experience first
+
+> Note: "fully local first" held — local chat + shared memory shipped before any cloud was wired. Cloud is now an *optional opt-in* layer (manual `/deep` → Gemini free), never a dependency: with no key set, the app runs 100% local.

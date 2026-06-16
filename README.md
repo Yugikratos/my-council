@@ -6,16 +6,23 @@ on your life. Everything runs locally: no cloud, no token cost.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full vision, personas, and architecture.
 
-## Status — MVP step 3
+## Status — MVP step 6 (desktop widget)
 
-Persistent, shared, long-term memory now works. Close everything, reopen
-tomorrow, and any persona can recall relevant things from past conversations
-with **any** persona. Voice and avatars come in later steps.
+The full local loop works: chat, shared cross-session memory, persona switching,
+and a desktop avatar widget. Close everything, reopen tomorrow, and any persona
+can recall relevant things from past conversations with **any** persona. Local
+TTS (voice) is the one remaining MVP step.
 
 What works now:
 
 - Node.js + Express backend, streaming replies from local Ollama (`gemma3:4b`)
-- Plain HTML/CSS/JS chat UI — no React/Electron/build step
+- Plain HTML/CSS/JS chat UI — no React, no build step (runs in a browser at
+  `localhost:3000`, or in the Electron desktop widget below)
+- **Desktop avatar widget (Electron):** a frameless, transparent, always-on-top
+  window shows the active persona's portrait in a corner of the desktop. Drag the
+  avatar to move it; click 💬 to collapse/expand the chat panel. The portrait
+  fade-swaps when you switch personas and pulses while a reply is generating.
+  Launch with `npm run start:widget` (see [below](#run-as-a-desktop-widget-electron)).
 - All six personas — Kratos, Dante, Vergil, Jiraiya, Naruto, Anya — each in
   character and aware it is one of the Council
 - Header persona picker; switching keeps one continuous, correctly-attributed
@@ -25,6 +32,11 @@ What works now:
   semantically retrieves only the most relevant past entries and injects them as
   attributed reference context (so a persona can recall and reference what you
   told another persona, without imitating that persona's voice)
+- **Optional `/deep` cloud turn:** prefix a message with `/deep` to route just
+  that turn to Google Gemini (free tier) instead of local Gemma — same persona,
+  memory, and voice rules. Falls back to local automatically if unavailable; the
+  reply is badged "Deep Mind" only when it genuinely came from the cloud. (See
+  [Hybrid cloud — `/deep`](#hybrid-cloud--deep-optional).)
 - **Graceful degradation:** if the memory service is down, chat still works in
   the current session and the UI says memory is unavailable — it never crashes
 
@@ -33,6 +45,7 @@ What works now:
 ```
 my-council/
 ├── start-all.ps1          # launch both services (memory + app) in one go
+├── main.js                # Electron entry: frameless desktop widget (npm run start:widget)
 ├── server/
 │   ├── index.js           # Express server: serves the UI + POST /api/chat
 │   ├── config.js          # Node-side config (Ollama, port, memory, cloud)
@@ -47,7 +60,12 @@ my-council/
 │   ├── config.py          # Python-side config (N, data path, port, model)
 │   ├── requirements.txt   # pinned deps (ChromaDB etc.)
 │   └── chroma-data/       # persisted memory (created at runtime; gitignored)
-└── public/                # chat UI (index.html, styles.css, app.js)
+└── public/                # chat UI + desktop avatar
+    ├── index.html
+    ├── styles.css
+    ├── app.js             # chat logic, SSE streaming, /deep handling
+    ├── avatar.js          # AvatarManager: portrait swap + talking animation
+    └── avatars/           # one PNG portrait per persona
 ```
 
 ## Prerequisites
@@ -110,6 +128,24 @@ http://localhost:3000
 # Terminal 2 — app
 npm start
 ```
+
+### Run as a desktop widget (Electron)
+
+To run My Council as a frameless desktop companion instead of a browser tab:
+
+```powershell
+# 1. Start the memory service so personas remember across sessions:
+.\.venv\Scripts\python.exe memory-service\app.py
+
+# 2. In another terminal, launch the widget:
+npm run start:widget
+```
+
+The widget (`main.js`) starts the Express app **in-process** if port 3000 is free,
+or hooks onto an already-running one — so it coexists with `start-all.ps1`. It
+opens a transparent, always-on-top window: drag the avatar to reposition it, and
+click 💬 to collapse or expand the chat. Electron is a dev dependency, so run
+`npm install` once first to fetch it.
 
 ### Useful variants
 
