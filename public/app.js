@@ -13,6 +13,7 @@ const rosterEl = document.getElementById("roster");
 
 let personas = []; // [{ id, displayName }] from GET /api/personas
 let activeId = null; // id of the currently selected persona
+let currentAbortController = null;
 
 // The session log, in order. Each entry is one turn:
 //   { role: "user", content }
@@ -163,6 +164,13 @@ formEl.addEventListener("submit", async (e) => {
   const text = inputEl.value.trim();
   if (!text) return;
 
+  // Concurrency guard: abort any active running stream first
+  if (currentAbortController) {
+    currentAbortController.abort();
+  }
+  currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
+
   // Stop any active audio playback immediately from previous turns
   if (window.voiceManager) {
     window.voiceManager.stop();
@@ -211,6 +219,7 @@ formEl.addEventListener("submit", async (e) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ personaId: persona.id, messages: history }),
+      signal,
     });
 
     if (!res.ok) {
@@ -246,6 +255,11 @@ formEl.addEventListener("submit", async (e) => {
             if (whoEl) whoEl.after(badge);
           }
         }
+        // Instantly stop generating pulse and restore input widgets on done event
+        setBusy(false);
+        if (window.avatarManager) {
+          window.avatarManager.setTalking(false);
+        }
       } else if (event.type === "audio") {
         if (window.voiceManager) {
           window.voiceManager.handleAudioEvent(event);
@@ -261,15 +275,24 @@ formEl.addEventListener("submit", async (e) => {
       replyBody.parentElement.remove();
     }
   } catch (err) {
+    if (err.name === "AbortError") {
+      return;
+    }
     showError(replyBody, err.message || "Could not reach the server.");
   } finally {
-    // showError() may have already replaced the bubble, in which case
-    // parentElement is null and this is a no-op.
-    replyBody.parentElement?.classList.remove("cursor");
-    setBusy(false);
-    
-    if (window.avatarManager) {
-      window.avatarManager.setTalking(false);
+    // Only cleanup global state if this is the latest active query
+    if (currentAbortController?.signal === signal) {
+      replyBody.parentElement?.classList.remove("cursor");
+      setBusy(false);
+      
+      if (window.avatarManager) {
+        window.avatarManager.setTalking(false);
+      }
+    } else {
+      replyBody.parentElement?.classList.remove("cursor");
+      if (!reply) {
+        replyBody.parentElement?.remove();
+      }
     }
   }
 });
