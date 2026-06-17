@@ -264,3 +264,28 @@ export function getAudioPath(utteranceId, seq) {
   }
   return path;
 }
+
+// Pre-warm ONE voice: synthesize a tiny throwaway line for the given persona so
+// the OS page-caches its ~60MB .onnx (and piper/ffmpeg get exercised) BEFORE the
+// first real turn — turning that turn's cold ~6s/sentence into the warm ~0.7s
+// case. We warm only this one voice at boot to avoid D: drive + CPU contention
+// while Ollama loads Gemma into VRAM; every OTHER voice warms naturally on its
+// first real synthesis (the OS caches its model file on that first read). Best-
+// effort and fully fail-soft: never throws, never blocks, logs once. Gated by
+// TTS_ENABLED, which synthesize() already honors.
+export async function prewarm(personaId) {
+  if (!config.tts.enabled) return;
+  if (!existsSync(config.tts.piperPath)) return; // first real use will log the miss
+  const start = Date.now();
+  try {
+    const wav = await synthesize("Ready.", personaId);
+    if (wav) {
+      try { rmSync(wav); } catch {} // discard the throwaway WAV (never registered)
+      console.log(`[tts] pre-warmed voice "${personaId}" in ${Date.now() - start}ms`);
+    } else {
+      console.log(`[tts] pre-warm skipped for "${personaId}" (no piper/voice/model)`);
+    }
+  } catch {
+    console.warn(`[tts] pre-warm failed for "${personaId}" — first reply may be slower`);
+  }
+}

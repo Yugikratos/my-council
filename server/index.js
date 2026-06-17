@@ -16,7 +16,7 @@ import { getPersona, listPersonas, DEFAULT_PERSONA_ID } from "./personas/index.j
 import { buildOllamaMessages } from "./context.js";
 import { createReplyFilter } from "./reply-filter.js";
 import { splitSentences } from "./text.js";
-import { synthesize, registerAudio, getAudioPath } from "./tts.js";
+import { synthesize, registerAudio, getAudioPath, prewarm } from "./tts.js";
 import { retrieve, store } from "./memory.js";
 
 // A turn routes to the optional cloud tier only when prefixed with "/deep".
@@ -253,4 +253,12 @@ app.listen(config.port, () => {
     `  Long-term memory: ${config.memory.enabled ? config.memory.url : "disabled"}.`
   );
   console.log("  Press Ctrl+C to stop.\n");
+
+  // Warm ONE voice in the BACKGROUND after the port is open. The active persona
+  // is chosen client-side and unknown here, so we warm the default (Kratos);
+  // every other voice warms naturally on its first real synthesis. Not awaited
+  // → never delays the server accepting requests. Fail-soft inside prewarm().
+  // Warming a single voice (not all six) avoids D: drive + CPU contention while
+  // Ollama is loading Gemma into VRAM at the same moment.
+  prewarm(DEFAULT_PERSONA_ID);
 });
