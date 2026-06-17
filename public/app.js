@@ -163,6 +163,11 @@ formEl.addEventListener("submit", async (e) => {
   const text = inputEl.value.trim();
   if (!text) return;
 
+  // Stop any active audio playback immediately from previous turns
+  if (window.voiceManager) {
+    window.voiceManager.stop();
+  }
+
   const persona = activePersona();
   if (!persona) return; // personas haven't loaded yet
 
@@ -240,6 +245,10 @@ formEl.addEventListener("submit", async (e) => {
             const whoEl = replyBody.parentElement.querySelector(".who");
             if (whoEl) whoEl.after(badge);
           }
+        }
+      } else if (event.type === "audio") {
+        if (window.voiceManager) {
+          window.voiceManager.handleAudioEvent(event);
         }
       }
     });

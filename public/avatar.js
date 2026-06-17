@@ -6,6 +6,7 @@ class AvatarManager {
     this.avatarEl = document.getElementById("avatar-image");
     this.containerEl = document.getElementById("avatar-container");
     this.isTalking = false;
+    this.isSpeaking = false;
   }
 
   // Switches the portrait image
@@ -38,6 +39,18 @@ class AvatarManager {
     } else {
       this.containerEl.classList.remove("talking");
       this.containerEl.classList.remove("deep-generating");
+    }
+  }
+
+  // Toggles the speaking/audio playing animation state
+  setSpeaking(isSpeaking) {
+    this.isSpeaking = isSpeaking;
+    if (!this.containerEl) return;
+
+    if (isSpeaking) {
+      this.containerEl.classList.add("speaking");
+    } else {
+      this.containerEl.classList.remove("speaking");
     }
   }
 }
