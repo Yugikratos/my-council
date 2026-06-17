@@ -6,12 +6,17 @@
 import express from "express";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
 
 import { config } from "./config.js";
 import { streamChat, OllamaUnavailableError } from "./ollama.js";
 import { openCloudStream } from "./cloud.js";
 import { getPersona, listPersonas, DEFAULT_PERSONA_ID } from "./personas/index.js";
 import { buildOllamaMessages } from "./context.js";
+import { createReplyFilter } from "./reply-filter.js";
+import { splitSentences } from "./text.js";
+import { synthesize, registerAudio, getAudioPath } from "./tts.js";
 import { retrieve, store } from "./memory.js";
 
 // A turn routes to the optional cloud tier only when prefixed with "/deep".
@@ -30,13 +35,39 @@ app.get("/api/personas", (req, res) => {
   res.json({ personas: listPersonas(), default: DEFAULT_PERSONA_ID });
 });
 
+// Serve a synthesized WAV referenced by an "audio" SSE event's url. Resolves
+// only through the in-memory registry (tts.js validates id/seq and confirms the
+// file is one we produced in the temp dir), so a request can never name an
+// arbitrary path — no traversal surface.
+app.get("/api/tts", (req, res) => {
+  const id = req.query.id;
+  const seq = Number(req.query.seq);
+  const path = getAudioPath(id, seq);
+  if (!path) return res.status(404).end();
+  res.setHeader("Content-Type", "audio/wav");
+  res.setHeader("Cache-Control", "no-store");
+  createReadStream(path)
+    .on("error", () => res.status(500).end())
+    .pipe(res);
+});
+
 // Streaming chat endpoint.
 // Request body: { personaId?: string, messages: [{ role, content }, ...] }
 // Response: Server-Sent Events, one JSON payload per `data:` frame:
 //   { type: "token", value: "..." }  — a piece of the reply
-//   { type: "done" }                 — the reply is complete
+//   { type: "done", source }         — the reply is complete (source: local|cloud)
 //   { type: "notice", message }      — non-fatal info (e.g. memory unavailable)
 //   { type: "error", message: "..." }— something went wrong
+//   { type: "audio", utteranceId, seq, url, last } — OPTIONAL spoken audio
+//       Emitted AFTER "done", one per sentence, only when TTS is enabled and
+//       synthesis succeeds. The token text contract is unchanged: text streams
+//       and completes exactly as before, so a client that ignores "audio" (the
+//       current frontend does) behaves identically. Shape:
+//         utteranceId — id grouping this reply's sentences (one per reply)
+//         seq         — 0-based sentence index; play in ascending order
+//         url         — GET it for the WAV bytes: /api/tts?id=<id>&seq=<seq>
+//         last        — true on the final sentence of the reply
+//       Per-sentence so the first can play while later ones still synthesize.
 //
 // Memory is layered BENEATH the chat loop: we retrieve relevant long-term
 // memories before building the prompt, and store the exchange after replying.
@@ -98,24 +129,27 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  let reply = "";
   let completed = false;
   // Which model actually produced the reply, reported to the UI in the "done"
   // event (carries no sensitive data). Starts as the routed choice; flips to
   // "local" if the cloud call fails before any token and we fall back.
   let source = routeToCloud ? "cloud" : "local";
-  let producedTokens = 0;
 
-  // Clean each token of asterisks, double quotes (straight and curly), and the
-  // opening single curly quote; preserve apostrophes (') and closing curly quote
-  // (’) so English contractions survive. Same rule for both local and cloud.
+  // One sanitizer per reply enforces the voice constraints on the MODEL'S output
+  // (strips stage directions, *actions*, speaker labels, newlines; caps to 3
+  // sentences) — the prompt alone doesn't reliably hold on a small model. Both
+  // the local and cloud paths feed through it. It buffers any unstable tail and
+  // emits only the new clean suffix, so the UI keeps streaming. See reply-filter.js.
+  let filter = createReplyFilter({ displayName: persona.displayName });
+
   const pushToken = (token) => {
-    const cleanToken = token.replace(/[\*"“”‘]/g, "");
-    if (cleanToken) {
-      reply += cleanToken;
-      producedTokens++;
-      send({ type: "token", value: cleanToken });
-    }
+    const add = filter.push(token);
+    if (add) send({ type: "token", value: add });
+  };
+  // Flush any held tail once a stream ends (closes off the cleaned reply).
+  const flushReply = () => {
+    const tail = filter.flush();
+    if (tail) send({ type: "token", value: tail });
   };
 
   try {
@@ -123,26 +157,58 @@ app.post("/api/chat", async (req, res) => {
       try {
         const cloudStream = await openCloudStream(fullMessages);
         for await (const token of cloudStream) pushToken(token);
+        flushReply();
       } catch (cloudErr) {
         // If the cloud already streamed part of a reply, we can't cleanly restart
         // — let the outer handler report it. Otherwise fall back to local Gemma
         // for this turn so the user's message is never lost. The key never
         // appears in cloudErr (sanitized in cloud.js); log only a category.
-        if (producedTokens > 0) throw cloudErr;
+        if (filter.text().length > 0) throw cloudErr;
         console.warn(`[cloud] unavailable (${cloudErr?.code ?? "error"}); using local model`);
         send({
           type: "notice",
           message: "Deep mode (cloud) was unavailable — answered with the local model instead.",
         });
         source = "local";
-        reply = "";
+        // Fresh filter so the local attempt starts from a clean slate.
+        filter = createReplyFilter({ displayName: persona.displayName });
         for await (const token of streamChat(fullMessages)) pushToken(token);
+        flushReply();
       }
     } else {
       for await (const token of streamChat(fullMessages)) pushToken(token);
+      flushReply();
     }
     completed = true;
     send({ type: "done", source });
+
+    // --- Optional spoken audio --------------------------------------------
+    // After the text reply is fully done, synthesize it per sentence and emit
+    // an "audio" event per WAV. This is strictly additive: the token stream and
+    // "done" already fired with unchanged timing, so a client ignoring "audio"
+    // is unaffected. Best-effort — synthesize() fails soft (returns null) and
+    // the whole block is wrapped so TTS can NEVER break a delivered reply. We
+    // keep the connection open through synthesis (res.end() is in finally).
+    if (config.tts.enabled) {
+      try {
+        const sentences = splitSentences(filter.text());
+        const utteranceId = randomUUID();
+        for (let seq = 0; seq < sentences.length; seq++) {
+          const wav = await synthesize(sentences[seq], persona.id);
+          if (!wav) break; // missing piper/model — stop trying this turn
+          registerAudio(utteranceId, seq, wav);
+          send({
+            type: "audio",
+            utteranceId,
+            seq,
+            url: `/api/tts?id=${utteranceId}&seq=${seq}`,
+            last: seq === sentences.length - 1,
+          });
+        }
+      } catch {
+        /* never let audio synthesis affect the already-delivered reply */
+      }
+    }
   } catch (err) {
     if (err instanceof OllamaUnavailableError) {
       send({
@@ -166,12 +232,15 @@ app.post("/api/chat", async (req, res) => {
 
   // Persist the completed exchange verbatim, tagged with the active persona
   // (fails soft; happens after the response is already sent to the client).
-  if (completed && query && reply) {
+  // Store the SANITIZED reply — the same text the user saw and that TTS will
+  // speak — so memory stays consistent with what was actually said.
+  const finalReply = filter.text();
+  if (completed && query && finalReply) {
     await store({
       personaId: persona.id,
       personaName: persona.displayName,
       userMessage: query,
-      reply,
+      reply: finalReply,
     });
   }
 });

@@ -206,6 +206,36 @@ to Kratos is still answered by **Kratos**, with the same memory and grounding.
 The reply is stored to memory exactly like a local one. If cloud mode is
 unavailable you'll get the local answer plus a one-line notice.
 
+## Local TTS — Piper (optional)
+
+Each persona's reply can be spoken aloud locally with **Piper**, a fast offline
+neural TTS. Like everything else here it stays on your machine — no cloud, no
+cost — and it is **fully optional**. With no `piper.exe` and no voice models
+present, the app simply runs text-only: synthesis fails soft, the chat is
+unaffected, and nothing errors. The whole feature is gated behind `TTS_ENABLED`
+(default on), so you can also turn it off explicitly.
+
+### Setup
+
+Piper is **not** committed to this repo — the binary and voice models are large
+and machine-specific, so each clone vendors its own (this is a public repo).
+Download the Windows `piper.exe` from the Piper releases page
+(<https://github.com/rhasspy/piper/releases>) and place it in `tools/piper/`.
+Then grab one or more voice models — each is a pair, a `.onnx` file **and** its
+matching `.onnx.json` — and drop both into `tools/piper/voices/`. These paths
+are gitignored by design; only the folder structure (via a `.gitkeep`) is
+tracked, so a fresh clone has the layout ready but no binaries.
+
+The per-persona voice map lives in [`server/config.js`](./server/config.js)
+under `tts.voices`. The filenames there are sensible defaults — swap them for
+whatever voices you download. Each persona can also tune `length_scale` (speech
+speed/weight; above `1.0` is slower and heavier) and the `noise_scale` /
+`noise_w` knobs (expressiveness), so the voice fits the character: deep and slow
+for Kratos, lighter and quicker for Anya.
+
+Synthesis runs CPU-side, so it doesn't compete with Gemma for the GTX 1650's
+4 GB of VRAM — the GPU stays free for the language model.
+
 ## Persistence test (prove memory survives a restart and is shared)
 
 1. Start both services (`.\start-all.ps1`) and open http://localhost:3000.
@@ -237,8 +267,11 @@ Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing | Select-Object 
 | Memory URL     | `MEMORY_URL`     | `http://127.0.0.1:8000`       |
 | Memory on/off  | `MEMORY_ENABLED` | `true`                        |
 | Cloud on/off   | `CLOUD_ENABLED`  | `true`                        |
-| Gemini model   | `GEMINI_MODEL`   | `gemini-1.5-flash`            |
+| Gemini model   | `GEMINI_MODEL`   | `gemini-2.5-flash`            |
 | Gemini API key | `GEMINI_API_KEY` | _(unset — required for_ `/deep`_)_ |
+| TTS on/off     | `TTS_ENABLED`    | `true`                        |
+| Piper binary   | `PIPER_PATH`     | `tools/piper/piper.exe`       |
+| Voices dir     | `VOICES_DIR`     | `tools/piper/voices`          |
 
 > The Gemini API key is read **only** from the environment or a gitignored
 > `.env` — never hardcoded, never stored in `config.js`. See

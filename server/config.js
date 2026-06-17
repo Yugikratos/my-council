@@ -5,6 +5,14 @@
 // Load a local .env (gitignored) before reading any env vars. Side-effect import.
 import "./env.js";
 
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+// Repo root, so default TTS paths can point at a vendored tools/piper/ dir
+// regardless of where the process is launched from.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const repoRoot = join(__dirname, "..");
+
 export const config = {
   // Port the local web server listens on.
   port: Number(process.env.PORT) || 3000,
@@ -49,8 +57,45 @@ export const config = {
     // Fixed official endpoint base. Do not make this env-overridable — the key is
     // only ever sent here, over HTTPS.
     endpoint: "https://generativelanguage.googleapis.com/v1beta",
-    // Which Gemini model to use. Free-tier flash by default; override if desired.
-    model: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+    // Which Gemini model to use. Free-tier flash by default; override with
+    // GEMINI_MODEL if desired. Kept in sync with the deployed .env so /deep
+    // doesn't silently downgrade if that line is ever dropped.
+    model: process.env.GEMINI_MODEL || "gemini-2.5-flash",
     options: { temperature: 0.8 },
+  },
+
+  // Local TTS (Piper). Best-effort and OFF the critical path: if piper.exe or a
+  // voice model is missing, synthesis fails soft (server/tts.js logs once and
+  // returns null) and chat is unaffected. Nothing here is sent to any network.
+  tts: {
+    // Master switch. Default ON; set TTS_ENABLED=false to skip synthesis
+    // entirely (no audio events emitted).
+    enabled: process.env.TTS_ENABLED !== "false",
+
+    // Vendored binary + voices. Defaults point at tools/piper/ in the repo;
+    // override with PIPER_PATH / VOICES_DIR. piper.exe is NOT committed — vendor
+    // it locally. Each voice needs BOTH <name>.onnx and <name>.onnx.json.
+    piperPath: process.env.PIPER_PATH || join(repoRoot, "tools", "piper", "piper.exe"),
+    voicesDir: process.env.VOICES_DIR || join(repoRoot, "tools", "piper", "voices"),
+
+    // How many recent utterance WAVs to keep in OS temp before pruning oldest.
+    retain: Number(process.env.TTS_RETAIN) || 12,
+
+    // Shared synthesis params; per-persona entries below override as needed.
+    // length_scale > 1 = slower/heavier; noise_* shape expressiveness.
+    defaults: { length_scale: 1.0, noise_scale: 0.667, noise_w: 0.8 },
+
+    // Per-persona voice map. `model` is a filename inside voicesDir (the .onnx;
+    // its matching .onnx.json must sit beside it). Names below are sensible
+    // Piper voices to drop in; swap freely. Tuned to match each character's vibe
+    // (deep/slow for Kratos, lighter/quicker for Anya).
+    voices: {
+      kratos: { model: "en_US-ryan-high.onnx", length_scale: 1.25, noise_scale: 0.6 },
+      dante: { model: "en_US-joe-medium.onnx", length_scale: 0.95 },
+      vergil: { model: "en_US-ryan-medium.onnx", length_scale: 1.1, noise_scale: 0.5 },
+      jiraiya: { model: "en_US-bryce-medium.onnx", length_scale: 1.05 },
+      naruto: { model: "en_US-joe-medium.onnx", length_scale: 0.9, noise_w: 0.9 },
+      anya: { model: "en_US-amy-medium.onnx", length_scale: 0.95, noise_w: 0.9 },
+    },
   },
 };

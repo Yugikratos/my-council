@@ -16,3 +16,11 @@ __pycache__/
 
 # Local memory data (ChromaDB) — never commit conversation memory
 memory-service/chroma-data/
+
+# Vendored Piper TTS — binary + voice models are large and machine-specific, so
+# each clone vendors its own (public repo). The folder structure stays tracked
+# via tools/piper/voices/.gitkeep.
+tools/piper/piper.exe
+tools/piper/*.dll
+tools/piper/voices/*.onnx
+tools/piper/voices/*.onnx.json
