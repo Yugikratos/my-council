@@ -98,13 +98,25 @@ export const config = {
     // Piper voices to drop in; swap freely. Tuned to match each character's vibe
     // (deep/slow for Kratos, lighter/quicker for Anya).
     voices: {
-      // pitch 0.82 (~3 semitones down) for a deep Kratos register — verified by ear.
+      // Kratos — deep British, slow and heavy. pitch 0.82 (~3 semitones down)
+      // for a low register, verified by ear.
       kratos: { model: "en_GB-alan-medium.onnx", length_scale: 1.3, noise_scale: 0.6, pitch: 0.82 },
-      dante: { model: "en_US-joe-medium.onnx", length_scale: 0.95 },
-      vergil: { model: "en_US-ryan-medium.onnx", length_scale: 1.1, noise_scale: 0.5 },
-      jiraiya: { model: "en_US-bryce-medium.onnx", length_scale: 1.05 },
-      naruto: { model: "en_US-joe-medium.onnx", length_scale: 0.9, noise_w: 0.9 },
-      anya: { model: "en_US-amy-medium.onnx", length_scale: 0.95, noise_w: 0.9 },
+      // Vergil — cold, controlled, measured. Deliberately a DIFFERENT model from
+      // Kratos's en_GB-alan and a different accent (clean American), with low
+      // noise for a flat/even delivery and only a slight pitch drop, so the two
+      // cold personas never sound interchangeable (Kratos = deep British/slow,
+      // Vergil = precise American/even). Uses -medium (not -high) for latency
+      // parity with the rest of the ensemble — high is larger/slower on CPU.
+      vergil: { model: "en_US-ryan-medium.onnx", length_scale: 1.15, noise_scale: 0.4, pitch: 0.95 },
+      // Dante — brighter, quicker, cockier; faster and a touch higher than Vergil.
+      dante: { model: "en_US-joe-medium.onnx", length_scale: 0.95, noise_scale: 0.7, pitch: 1.05 },
+      // Naruto — young, energetic; fast and pitched up for a youthful sound.
+      naruto: { model: "en_US-bryce-medium.onnx", length_scale: 0.9, noise_scale: 0.7, pitch: 1.12 },
+      // Jiraiya — older, warm, measured, with roguish weight.
+      jiraiya: { model: "en_US-norman-medium.onnx", length_scale: 1.1, noise_scale: 0.667, pitch: 0.92 },
+      // Anya — light small-child voice; fast and pushed well up in pitch since no
+      // Piper model is actually a young child.
+      anya: { model: "en_US-amy-medium.onnx", length_scale: 0.95, noise_scale: 0.7, pitch: 1.3 },
     },
   },
 };

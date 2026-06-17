@@ -27,3 +27,6 @@ tools/piper/espeak-ng-data/
 tools/piper/pkgconfig/
 tools/piper/voices/*.onnx
 tools/piper/voices/*.onnx.json
+
+# Throwaway local TTS audition/diagnostic script (not part of the app).
+/verify-tts.mjs
