@@ -78,19 +78,28 @@ export const config = {
     piperPath: process.env.PIPER_PATH || join(repoRoot, "tools", "piper", "piper.exe"),
     voicesDir: process.env.VOICES_DIR || join(repoRoot, "tools", "piper", "voices"),
 
+    // Optional post-synthesis pitch shift (ffmpeg). Piper itself has NO pitch
+    // control — only an external tool can lower pitch, which is the only way to
+    // reach a true Kratos register. ffmpeg is resolved from PATH by default;
+    // override with FFMPEG_PATH. If ffmpeg is absent the shift is skipped and
+    // the un-pitched WAV is served (synthesis still works — see server/tts.js).
+    ffmpegPath: process.env.FFMPEG_PATH || "ffmpeg",
+
     // How many recent utterance WAVs to keep in OS temp before pruning oldest.
     retain: Number(process.env.TTS_RETAIN) || 12,
 
     // Shared synthesis params; per-persona entries below override as needed.
     // length_scale > 1 = slower/heavier; noise_* shape expressiveness.
-    defaults: { length_scale: 1.0, noise_scale: 0.667, noise_w: 0.8 },
+    // pitch < 1 = deeper voice (post-shift via ffmpeg); 1.0 = no shift.
+    defaults: { length_scale: 1.0, noise_scale: 0.667, noise_w: 0.8, pitch: 1.0 },
 
     // Per-persona voice map. `model` is a filename inside voicesDir (the .onnx;
     // its matching .onnx.json must sit beside it). Names below are sensible
     // Piper voices to drop in; swap freely. Tuned to match each character's vibe
     // (deep/slow for Kratos, lighter/quicker for Anya).
     voices: {
-      kratos: { model: "en_US-ryan-high.onnx", length_scale: 1.25, noise_scale: 0.6 },
+      // pitch 0.82 (~3 semitones down) for a deep Kratos register — verified by ear.
+      kratos: { model: "en_GB-alan-medium.onnx", length_scale: 1.3, noise_scale: 0.6, pitch: 0.82 },
       dante: { model: "en_US-joe-medium.onnx", length_scale: 0.95 },
       vergil: { model: "en_US-ryan-medium.onnx", length_scale: 1.1, noise_scale: 0.5 },
       jiraiya: { model: "en_US-bryce-medium.onnx", length_scale: 1.05 },

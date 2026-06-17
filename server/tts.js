@@ -18,7 +18,7 @@
 //   arbitrary file on disk.
 
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -46,6 +46,11 @@ try {
 // Log-once guards so a missing binary/model doesn't spam the console every turn.
 let warnedMissingPiper = false;
 const warnedMissingModel = new Set();
+let warnedNoFfmpeg = false;
+
+// Cache of model -> sample rate (read from the voice's .onnx.json), needed for
+// the pitch-shift filter. Avoids re-reading the json every utterance.
+const sampleRateCache = new Map();
 
 // utteranceId -> Map(seq -> wavPath). Only paths we created live here.
 const registry = new Map();
@@ -62,6 +67,67 @@ function voiceFor(personaId) {
 
 function modelPathFor(voice) {
   return join(config.tts.voicesDir, voice.model);
+}
+
+// Read the model's native sample rate from its .onnx.json (Piper stores it under
+// audio.sample_rate). The pitch filter needs it. Defaults to 22050 (Piper's
+// usual rate) if the json can't be read/parsed. Cached per model path.
+function sampleRateFor(modelPath) {
+  if (sampleRateCache.has(modelPath)) return sampleRateCache.get(modelPath);
+  let sr = 22050;
+  try {
+    const meta = JSON.parse(readFileSync(`${modelPath}.json`, "utf8"));
+    if (meta?.audio?.sample_rate) sr = Number(meta.audio.sample_rate);
+  } catch {
+    /* fall back to 22050 */
+  }
+  sampleRateCache.set(modelPath, sr);
+  return sr;
+}
+
+// Lower (or raise) pitch WITHOUT changing duration, via ffmpeg. pitch < 1 is
+// deeper. Piper has no pitch knob, so this is the only route to a true Kratos
+// register. Best-effort: if ffmpeg is missing or fails, we log once and return
+// the ORIGINAL un-shifted WAV so the reply is still spoken. On success the
+// original is removed and the shifted path returned.
+//   asetrate lowers pitch AND slows playback; aresample restores the rate;
+//   atempo (1/pitch) restores the original duration. Net: same length, deeper.
+function applyPitch(srcPath, sr, pitch) {
+  return new Promise((resolve) => {
+    const outPath = join(TMP_DIR, `${randomUUID()}.wav`);
+    const filter = `asetrate=${sr}*${pitch},aresample=${sr},atempo=${1 / pitch}`;
+    const args = ["-y", "-loglevel", "error", "-i", srcPath, "-af", filter, outPath];
+    execFile(config.tts.ffmpegPath, args, (err) => {
+      if (err || !existsSync(outPath)) {
+        // Warn ONCE per process (mirrors the missing-piper case) whether ffmpeg
+        // is absent (ENOENT) or ran but failed — either way we fall back to the
+        // un-shifted WAV, and repeating the warning every turn would be noise.
+        if (!warnedNoFfmpeg) {
+          warnedNoFfmpeg = true;
+          if (err?.code === "ENOENT") {
+            console.warn(
+              `[tts] ffmpeg unavailable (${config.tts.ffmpegPath}) — serving un-shifted audio. ` +
+                "(Install ffmpeg or set FFMPEG_PATH for the deep-voice effect.)"
+            );
+          } else {
+            console.warn(`[tts] ffmpeg unavailable (${err?.code ?? "error"}) — serving un-shifted audio.`);
+          }
+        }
+        try {
+          rmSync(outPath);
+        } catch {
+          /* ignore */
+        }
+        return resolve(srcPath); // fail soft: keep the original
+      }
+      try {
+        rmSync(srcPath); // shifted version replaces the original
+      } catch {
+        /* ignore */
+      }
+      resolve(outPath);
+    });
+  });
 }
 
 // Prune the registry + on-disk WAVs down to the last `retain` utterances.
@@ -158,6 +224,10 @@ export async function synthesize(text, personaId) {
   const outPath = join(TMP_DIR, `${randomUUID()}.wav`);
   try {
     await runPiper(modelPath, outPath, voice, text);
+    // Optional deep-voice pitch shift (fails soft → returns the original path).
+    if (voice.pitch && voice.pitch !== 1) {
+      return await applyPitch(outPath, sampleRateFor(modelPath), voice.pitch);
+    }
     return outPath;
   } catch (err) {
     // One quiet category log; never throw into the chat flow.

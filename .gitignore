@@ -22,5 +22,8 @@ memory-service/chroma-data/
 # via tools/piper/voices/.gitkeep.
 tools/piper/piper.exe
 tools/piper/*.dll
+tools/piper/*.ort
+tools/piper/espeak-ng-data/
+tools/piper/pkgconfig/
 tools/piper/voices/*.onnx
 tools/piper/voices/*.onnx.json

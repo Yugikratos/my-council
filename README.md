@@ -229,9 +229,18 @@ tracked, so a fresh clone has the layout ready but no binaries.
 The per-persona voice map lives in [`server/config.js`](./server/config.js)
 under `tts.voices`. The filenames there are sensible defaults — swap them for
 whatever voices you download. Each persona can also tune `length_scale` (speech
-speed/weight; above `1.0` is slower and heavier) and the `noise_scale` /
-`noise_w` knobs (expressiveness), so the voice fits the character: deep and slow
-for Kratos, lighter and quicker for Anya.
+speed/weight; above `1.0` is slower and heavier), the `noise_scale` / `noise_w`
+knobs (expressiveness), and `pitch` (below `1.0` is deeper), so the voice fits
+the character: deep and slow for Kratos, lighter and quicker for Anya.
+
+The `pitch` knob needs **ffmpeg**, a second optional dependency. Piper itself has
+no pitch control, so the shift is applied as a quick post-processing pass on the
+synthesized WAV. ffmpeg is resolved from your `PATH` by default (override with
+`FFMPEG_PATH`, mirroring `piperPath`). It too fails soft: with ffmpeg present,
+each persona's `pitch` is applied (this is what gives Kratos his low register);
+without it, synthesis still works and serves the un-shifted Piper output — chat
+is never affected, you just lose the deepening effect. A persona with `pitch` of
+`1.0` (the default) skips ffmpeg entirely.
 
 Synthesis runs CPU-side, so it doesn't compete with Gemma for the GTX 1650's
 4 GB of VRAM — the GPU stays free for the language model.
@@ -272,6 +281,7 @@ Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing | Select-Object 
 | TTS on/off     | `TTS_ENABLED`    | `true`                        |
 | Piper binary   | `PIPER_PATH`     | `tools/piper/piper.exe`       |
 | Voices dir     | `VOICES_DIR`     | `tools/piper/voices`          |
+| ffmpeg binary  | `FFMPEG_PATH`    | `ffmpeg` _(from PATH; for_ `pitch`_)_ |
 
 > The Gemini API key is read **only** from the environment or a gitignored
 > `.env` — never hardcoded, never stored in `config.js`. See
