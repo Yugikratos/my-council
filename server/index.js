@@ -17,6 +17,7 @@ import { buildOllamaMessages } from "./context.js";
 import { createReplyFilter } from "./reply-filter.js";
 import { splitSentences } from "./text.js";
 import { synthesize, registerAudio, getAudioPath, prewarm } from "./tts.js";
+import { transcribe } from "./stt.js";
 import { retrieve, store } from "./memory.js";
 
 // A turn routes to the optional cloud tier only when prefixed with "/deep".
@@ -49,6 +50,28 @@ app.get("/api/tts", (req, res) => {
   createReadStream(path)
     .on("error", () => res.status(500).end())
     .pipe(res);
+});
+
+// Transcribe an uploaded push-to-talk audio clip via the local STT service.
+// This is a SEPARATE endpoint from chat: it only returns text. The frontend puts
+// that text into the composer and sends it through the normal /api/chat path —
+// memory, persona, /deep, and TTS logic are untouched.
+//
+// FRONTEND CONTRACT (mic capture is built separately against this):
+//   Request:  POST /api/transcribe
+//             Content-Type: multipart/form-data
+//             ONE file field named "file" — the recorded clip. webm/opus from
+//             MediaRecorder is expected; wav also works. No other fields.
+//   Response: 200 { "text": "..." }   — transcript ("" if silence/no speech)
+//             503 { "error": "..." }  — STT unavailable/disabled (show, fail soft)
+//
+// express.raw buffers the multipart body verbatim (the global express.json()
+// ignores non-JSON bodies), and stt.js forwards it with the original Content-Type
+// so the boundary survives. No multipart parsing — and no new npm dependency.
+app.post("/api/transcribe", express.raw({ type: "*/*", limit: "25mb" }), async (req, res) => {
+  const { ok, text, error } = await transcribe(req.body, req.headers["content-type"]);
+  if (!ok) return res.status(503).json({ error: error ?? "Speech-to-text is unavailable." });
+  res.json({ text });
 });
 
 // Streaming chat endpoint.

@@ -119,4 +119,20 @@ export const config = {
       anya: { model: "en_US-amy-medium.onnx", length_scale: 0.95, noise_scale: 0.7, pitch: 1.3 },
     },
   },
+
+  // Local speech-to-text service (faster-whisper wrapper). See stt-service/.
+  // The browser uploads push-to-talk audio to the Node app (POST /api/transcribe)
+  // and we proxy it here, mirroring how memory.js talks to the memory service —
+  // the browser never hits the Python service directly. Fails soft: if it's down
+  // the route returns a clear error and chat (a separate path) is unaffected.
+  stt: {
+    // Master switch. Set STT_ENABLED=false to disable the /api/transcribe route.
+    enabled: process.env.STT_ENABLED !== "false",
+    // Where the local STT service listens — its own port, not 3000 (app) or 8000
+    // (memory).
+    url: process.env.STT_URL || "http://127.0.0.1:8001",
+    // CPU transcription of a clip takes seconds; allow generous headroom but bound
+    // it so a hung service can't stall the request forever.
+    timeoutMs: Number(process.env.STT_TIMEOUT_MS) || 30000,
+  },
 };

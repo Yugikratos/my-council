@@ -9,8 +9,9 @@ npm-debug.log*
 
 .DS_Store
 
-# Python memory service
+# Python service venvs (memory service uses .venv; STT service uses .venv-stt)
 .venv/
+.venv-stt/
 __pycache__/
 *.pyc
 

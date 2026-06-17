@@ -1,0 +1,23 @@
+# My Council STT service — pinned for reproducibility.
+#
+# faster-whisper runs OpenAI Whisper via CTranslate2 (CPU int8 here). It pulls
+# its own native stack transitively — ctranslate2, av (PyAV, bundles ffmpeg for
+# webm/opus decoding), onnxruntime (Silero VAD), tokenizers, huggingface-hub —
+# so the top-level pin below is enough; those resolve automatically.
+#
+# RECOMMENDED: install into a DEDICATED Python 3.12 venv (.venv-stt), NOT the
+# memory service's .venv — faster-whisper's deps (tokenizers / huggingface-hub /
+# numpy) can otherwise shuffle the verified chromadb 1.5.9 pin set. Same 3.12 +
+# pinned-requirements pattern, just isolated. (Python 3.14 lacks prebuilt wheels
+# for these native deps — use 3.12.)
+#
+# python-multipart is required by FastAPI to parse the multipart file upload.
+#
+# requests: faster-whisper 1.1.1 imports `requests` directly, but huggingface-hub
+# 1.x no longer pulls it in as a hard dependency (it moved to httpx), so we must
+# declare it explicitly or the import fails with ModuleNotFoundError.
+faster-whisper==1.1.1
+fastapi==0.115.6
+uvicorn==0.32.1
+python-multipart==0.0.20
+requests==2.32.3
