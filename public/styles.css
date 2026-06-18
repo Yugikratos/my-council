@@ -511,3 +511,73 @@ body {
   }
 }
 
+/* Composer mic button styling */
+.mic-btn {
+  width: 42px;
+  height: 42px;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid #2c3034;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s ease-in-out;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mic-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: #3a3f44;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.mic-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+/* Recording State (held) */
+.mic-btn.recording {
+  background: rgba(162, 59, 45, 0.2);
+  border-color: var(--accent);
+  color: var(--accent);
+  animation: micPulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes micPulse {
+  0% {
+    box-shadow: 0 0 5px rgba(162, 59, 45, 0.3);
+    transform: scale(1);
+  }
+  100% {
+    box-shadow: 0 0 15px rgba(162, 59, 45, 0.8);
+    transform: scale(1.05);
+  }
+}
+
+/* Transcribing State (after release, waiting for transcription API) */
+.mic-btn.transcribing {
+  background: rgba(58, 92, 204, 0.2);
+  border-color: var(--deep-accent);
+  color: var(--deep-accent);
+  animation: micSpin 1.5s linear infinite;
+}
+
+@keyframes micSpin {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+}
+
+.mic-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
