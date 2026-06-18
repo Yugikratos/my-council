@@ -268,7 +268,10 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-app.listen(config.port, () => {
+// Bind to loopback only. This is a personal, local-first app holding private
+// memory and able to spend the Gemini key (via /deep) — it must NOT be reachable
+// from the local network. Matches how the Python services bind 127.0.0.1.
+app.listen(config.port, "127.0.0.1", () => {
   console.log("\nMy Council is running.");
   console.log(`  Open http://localhost:${config.port} in your browser.`);
   console.log(`  Talking to Ollama at ${config.ollama.baseUrl} (model: ${config.ollama.model}).`);
