@@ -34,7 +34,7 @@ body {
 
 .app {
   display: flex;
-  flex-direction: row;
+  flex-direction: row-reverse; /* Put avatar on the right, chat drawer on the left */
   height: 100vh;
   width: 100vw;
   margin: 0;
@@ -53,13 +53,13 @@ body {
   min-width: 300px;
   height: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-end; /* Align bottom so Kratos sits flush on the taskbar */
   justify-content: center;
   position: relative;
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--panel);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: visible; /* Let pixel contour glow spill out naturally */
+  background: transparent; /* STANDALONE SILHOUETTE: transparent background */
+  border: none;
+  box-shadow: none;
   /* Make the avatar draggable so the widget can be moved around the desktop */
   -webkit-app-region: drag;
   /* Idle animation applied to container */
@@ -69,13 +69,13 @@ body {
 /* Sleek floating collapse/expand toggle button */
 .chat-toggle-btn {
   position: absolute;
-  bottom: 15px;
-  right: 15px;
+  bottom: 20px;
+  left: 10px; /* Positions tab on the left of the avatar pointing inwards */
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(23, 25, 28, 0.8);
+  border: 1px solid #3c1410;
+  background: rgba(23, 25, 28, 0.85);
   backdrop-filter: blur(8px);
   color: var(--text);
   font-size: 18px;
@@ -84,7 +84,7 @@ body {
   justify-content: center;
   cursor: pointer;
   z-index: 10;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
   /* Make sure clicks register by disabling dragging on this button */
   -webkit-app-region: no-drag;
   transition: transform 0.2s, background-color 0.2s, border-color 0.2s;
@@ -101,21 +101,21 @@ body {
 }
 
 #avatar-image {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: bottom;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
   transition: opacity 0.15s ease-in-out;
+  position: relative;
+  z-index: 2; /* Sits in front of the background elements */
 }
 
-/* Talking/Generating Animation */
-.avatar-container.talking::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 16px;
-  box-shadow: inset 0 0 40px rgba(162, 59, 45, 0.5);
-  animation: pulseGlow 2s ease-in-out infinite;
-  pointer-events: none;
+/* Talking/Generating Animation (Red Contour Glow) */
+.avatar-container.talking #avatar-image {
+  filter: drop-shadow(0 0 12px rgba(162, 59, 45, 0.8));
+  animation: pulseContour 2s ease-in-out infinite;
 }
 
 @keyframes breathe {
@@ -123,9 +123,9 @@ body {
   50% { transform: translateY(-4px) scale(1.01); }
 }
 
-@keyframes pulseGlow {
-  0%, 100% { box-shadow: inset 0 0 30px rgba(162, 59, 45, 0.3); }
-  50% { box-shadow: inset 0 0 60px rgba(162, 59, 45, 0.8); }
+@keyframes pulseContour {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(162, 59, 45, 0.5)); }
+  50% { filter: drop-shadow(0 0 20px rgba(162, 59, 45, 0.9)); }
 }
 
 /* Chat Side */
@@ -133,15 +133,17 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
+  background: rgba(23, 25, 28, 0.85); /* Semi-transparent obsidian runic slab */
+  backdrop-filter: blur(16px);
+  border: 1px solid #3c1410; /* Gothic crimson border */
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
   /* Make the chat panel interactive and non-draggable */
   -webkit-app-region: no-drag;
   opacity: 1;
   transform: scaleX(1);
-  transform-origin: left;
+  transform-origin: right; /* Expand/collapse inwards from the right edge */
   transition: flex 0.3s ease-in-out, width 0.3s ease-in-out, margin 0.3s ease-in-out, opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
 }
 
@@ -403,15 +405,15 @@ body {
   box-shadow: 0 0 8px var(--deep-glow);
 }
 
-/* Avatar Talking pulse in Deep Mode */
-.avatar-container.talking.deep-generating::after {
-  box-shadow: inset 0 0 40px var(--deep-glow-active);
-  animation: pulseGlowDeep 2s ease-in-out infinite;
+/* Avatar Talking pulse in Deep Mode (Blue Contour Glow) */
+.avatar-container.talking.deep-generating #avatar-image {
+  filter: drop-shadow(0 0 12px var(--deep-glow-active));
+  animation: pulseContourDeep 2s ease-in-out infinite;
 }
 
-@keyframes pulseGlowDeep {
-  0%, 100% { box-shadow: inset 0 0 30px var(--deep-glow); }
-  50% { box-shadow: inset 0 0 60px var(--deep-glow-active); }
+@keyframes pulseContourDeep {
+  0%, 100% { filter: drop-shadow(0 0 8px var(--deep-glow)); }
+  50% { filter: drop-shadow(0 0 20px var(--deep-glow-active)); }
 }
 
 /* Deep User Bubble */
@@ -491,23 +493,18 @@ body {
   background: rgba(162, 59, 45, 0.1);
 }
 
-/* Speaking State Animation (runs when audio plays and not generating) */
-.avatar-container.speaking:not(.talking)::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 16px;
-  box-shadow: inset 0 0 40px hsla(42, 79%, 54%, 0.5);
-  animation: pulseGlowSpeaking 1.2s ease-in-out infinite;
-  pointer-events: none;
+/* Speaking State Animation (runs when audio plays and not generating - Gold/Orange Contour Glow) */
+.avatar-container.speaking:not(.talking) #avatar-image {
+  filter: drop-shadow(0 0 12px hsla(42, 79%, 54%, 0.8));
+  animation: pulseContourSpeaking 1.2s ease-in-out infinite;
 }
 
-@keyframes pulseGlowSpeaking {
+@keyframes pulseContourSpeaking {
   0%, 100% {
-    box-shadow: inset 0 0 30px hsla(42, 79%, 54%, 0.3);
+    filter: drop-shadow(0 0 8px hsla(42, 79%, 54%, 0.5));
   }
   50% {
-    box-shadow: inset 0 0 60px hsla(42, 79%, 54%, 0.8);
+    filter: drop-shadow(0 0 20px hsla(42, 79%, 54%, 0.9));
   }
 }
 

@@ -1,5 +1,8 @@
-// My Council — Push-to-Talk (PTT) voice input manager
-// This file executes entirely on the client, managing mic stream recording and STT API POST requests.
+// My Council — Toggle-with-Silence-Detection voice input manager
+// This file executes entirely on the client, managing mic stream recording, AudioContext monitoring, and STT API POST requests.
+
+const SILENCE_TIMEOUT = 7000; // ms to wait after last speech before auto-stopping
+const SPEECH_THRESHOLD = 0.015; // RMS amplitude threshold for speech detection
 
 class MicManager {
   constructor() {
@@ -9,12 +12,27 @@ class MicManager {
     
     this.mediaRecorder = null;
     this.audioChunks = [];
-    this.isPressing = false;
-    this.state = "idle"; // "idle" | "recording" | "transcribing"
+    this.state = "idle"; // "idle" | "listening" | "transcribing"
+    
     this.stream = null;
+    this.audioContext = null;
+    this.analyser = null;
+    this.sourceNode = null;
+    
+    this.silenceTimeoutId = null;
+    this.volumeLoopId = null;
+    this.resumeTimeoutId = null;
+    
+    this.hasSpeechBeenDetected = false;
+    this.shouldTranscribe = false;
+    
+    // Persistent toggle/continuous listening state
+    this.isAlwaysOn = false;
+    this.isChatActive = false;
+    this.isSpeaking = false;
   }
 
-  // Bind PTT triggers once elements are available
+  // Bind toggle triggers once elements are available
   init() {
     this.btn = document.getElementById("mic-btn");
     this.input = document.getElementById("input");
@@ -25,41 +43,55 @@ class MicManager {
       return;
     }
 
-    // Capture start on mousedown or touchstart
-    this.btn.addEventListener("mousedown", (e) => this.onPressStart(e));
-    this.btn.addEventListener("touchstart", (e) => this.onPressStart(e), { passive: false });
-
-    // Capture release on mouseup, touchend, or mouseleave
-    this.btn.addEventListener("mouseup", (e) => this.onPressEnd(e));
-    this.btn.addEventListener("touchend", (e) => this.onPressEnd(e), { passive: false });
-    this.btn.addEventListener("mouseleave", (e) => this.onPressEnd(e));
+    // Single click/tap toggle listener
+    this.btn.addEventListener("click", (e) => this.onButtonClick(e));
   }
 
-  // Triggered when button is held down
-  async onPressStart(e) {
+  // Handle click toggling
+  async onButtonClick(e) {
     if (e && typeof e.preventDefault === "function" && e.cancelable) {
       e.preventDefault();
     }
-    
-    if (this.isPressing || this.state !== "idle") return;
-    this.isPressing = true;
+
+    if (this.state === "idle") {
+      this.isAlwaysOn = true;
+      await this.startListening();
+    } else if (this.state === "listening") {
+      // Manual stop
+      this.isAlwaysOn = false;
+      this.stopRecording(false);
+    } else if (this.state === "transcribing") {
+      // Cancel continuous listening during transcription
+      this.isAlwaysOn = false;
+    }
+  }
+
+  // Starts the microphone stream, recorders, and level analyzers
+  async startListening() {
+    if (this.state !== "idle") return;
+
+    // Do not start if the AI is actively processing or speaking
+    if (this.isChatActive || this.isSpeaking) {
+      console.log("[mic] Delaying listening: chat active or AI speaking.");
+      return;
+    }
 
     try {
-      this.updateState("recording");
+      this.updateState("listening");
+      this.hasSpeechBeenDetected = false;
+      this.audioChunks = [];
 
-      // Request microphone permissions if not already held
+      // Request microphone permissions
       if (!this.stream) {
         this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
 
-      // If user released the button while permission prompt was still open, stop
-      if (!this.isPressing) {
-        this.updateState("idle");
+      // If state was changed (e.g. toggled off) during permission prompt, abort
+      if (this.state !== "listening") {
+        this.cleanup();
         return;
       }
 
-      this.audioChunks = [];
-      
       // Auto-detect optimal mime type
       let options = {};
       if (typeof MediaRecorder.isTypeSupported === "function") {
@@ -81,38 +113,162 @@ class MicManager {
       });
 
       this.mediaRecorder.addEventListener("stop", () => {
-        this.onRecordingStopped();
+        this.handleRecorderStop();
       });
 
+      // Initialize Web Audio API components for silence detection
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      this.audioContext = new AudioContextClass();
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      
+      this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
+      this.sourceNode.connect(this.analyser);
+
+      // Start the volume analysis loop
+      this.startVolumeLoop();
+
       this.mediaRecorder.start();
+      console.log("[mic] Listening started. Monitoring silence...");
     } catch (err) {
-      console.error("[mic] Microphone access error:", err);
+      console.error("[mic] Microphone access or AudioContext error:", err);
       let noticeMsg = "Microphone access failed.";
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         noticeMsg = "Microphone permission denied.";
       }
       this.showNotice(noticeMsg);
+      this.isAlwaysOn = false;
+      this.cleanup();
       this.updateState("idle");
-      this.isPressing = false;
     }
   }
 
-  // Triggered when button is released
-  onPressEnd(e) {
-    if (e && typeof e.preventDefault === "function" && e.cancelable) {
-      e.preventDefault();
+  // Analyzes live volume levels and controls silence timer
+  startVolumeLoop() {
+    if (this.volumeLoopId) {
+      clearInterval(this.volumeLoopId);
     }
-    
-    if (!this.isPressing) return;
-    this.isPressing = false;
+    const bufferLength = this.analyser.frequencyBinCount;
+    const dataArray = new Float32Array(bufferLength);
 
-    if (this.state === "recording") {
-      if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-        this.mediaRecorder.stop();
-      } else {
-        this.updateState("idle");
+    this.volumeLoopId = setInterval(() => {
+      if (!this.analyser) return;
+      this.analyser.getFloatTimeDomainData(dataArray);
+
+      // Calculate Root Mean Square (RMS) volume
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        sum += dataArray[i] * dataArray[i];
       }
+      const rms = Math.sqrt(sum / bufferLength);
+
+      // Check if sound level crosses the speech threshold
+      if (rms > SPEECH_THRESHOLD) {
+        if (!this.hasSpeechBeenDetected) {
+          this.hasSpeechBeenDetected = true;
+          console.log("[mic] Speech detected. Silence timer armed.");
+        }
+        
+        // Reset the silence timer
+        if (this.silenceTimeoutId) {
+          clearTimeout(this.silenceTimeoutId);
+        }
+        this.silenceTimeoutId = setTimeout(() => {
+          console.log("[mic] Silence timeout reached. Automatically stopping.");
+          this.stopRecording(false);
+        }, SILENCE_TIMEOUT);
+      }
+    }, 100);
+  }
+
+  // Stop recording sequence
+  stopRecording(isCancel = false) {
+    if (this.state !== "listening") return;
+
+    // Determine if we should attempt transcription
+    this.shouldTranscribe = this.hasSpeechBeenDetected && !isCancel;
+
+    // Stop volume loop and clear timers immediately
+    if (this.volumeLoopId) {
+      clearInterval(this.volumeLoopId);
+      this.volumeLoopId = null;
     }
+    if (this.silenceTimeoutId) {
+      clearTimeout(this.silenceTimeoutId);
+      this.silenceTimeoutId = null;
+    }
+
+    // Clean up AudioContext elements
+    if (this.audioContext) {
+      if (this.audioContext.state !== "closed") {
+        this.audioContext.close().catch(err => {
+          console.error("[mic] Error closing AudioContext:", err);
+        });
+      }
+      this.audioContext = null;
+    }
+    this.analyser = null;
+    this.sourceNode = null;
+
+    // Stop MediaRecorder (which triggers the "stop" handler)
+    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
+      this.mediaRecorder.stop();
+    } else {
+      this.cleanupStream();
+      this.updateState("idle");
+    }
+  }
+
+  // Handle the recorder stopped event
+  async handleRecorderStop() {
+    this.cleanupStream();
+
+    if (this.shouldTranscribe) {
+      await this.onRecordingStopped();
+    } else {
+      this.updateState("idle");
+      this.checkResume();
+    }
+  }
+
+  // Release microphone hardware
+  cleanupStream() {
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch (e) {
+          console.error("[mic] Error stopping track:", e);
+        }
+      });
+      this.stream = null;
+    }
+  }
+
+  // General absolute cleanup
+  cleanup() {
+    if (this.volumeLoopId) {
+      clearInterval(this.volumeLoopId);
+      this.volumeLoopId = null;
+    }
+    if (this.silenceTimeoutId) {
+      clearTimeout(this.silenceTimeoutId);
+      this.silenceTimeoutId = null;
+    }
+    if (this.resumeTimeoutId) {
+      clearTimeout(this.resumeTimeoutId);
+      this.resumeTimeoutId = null;
+    }
+    if (this.audioContext) {
+      if (this.audioContext.state !== "closed") {
+        this.audioContext.close().catch(() => {});
+      }
+      this.audioContext = null;
+    }
+    this.analyser = null;
+    this.sourceNode = null;
+    this.cleanupStream();
+    this.mediaRecorder = null;
   }
 
   // Triggered once the recorder stops and outputs chunks
@@ -120,12 +276,13 @@ class MicManager {
     this.updateState("transcribing");
 
     try {
-      const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder.mimeType || "audio/webm" });
+      const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || "audio/webm" });
       
       // Prevent uploading empty or excessively short noise
       if (audioBlob.size < 1000) {
         this.showNotice("Recording too short.");
         this.updateState("idle");
+        this.checkResume();
         return;
       }
 
@@ -147,6 +304,7 @@ class MicManager {
       if (!text) {
         this.showNotice("Could not understand audio.");
         this.updateState("idle");
+        this.checkResume();
         return;
       }
 
@@ -156,13 +314,43 @@ class MicManager {
       // Trigger textarea auto-height sizing event listener
       this.input.dispatchEvent(new Event("input"));
 
+      // Set chat to active immediately before submitting, so resume doesn't fire prematurely
+      this.isChatActive = true;
+
       // Delegate directly to existing submit event listener logic
       this.form.requestSubmit();
       this.updateState("idle");
+      this.checkResume();
     } catch (err) {
       console.error("[mic] Transcription failed:", err);
       this.showNotice("Transcription unavailable.");
       this.updateState("idle");
+      this.checkResume();
+    }
+  }
+
+  // Hooks invoked by VoiceManager and app.js to handle continuous listening
+  onSpeakingStateChange(isPlaying) {
+    this.isSpeaking = isPlaying;
+    this.checkResume();
+  }
+
+  onChatTurnComplete() {
+    this.isChatActive = false;
+    this.checkResume();
+  }
+
+  // Automatically restarts listening when conditions are met
+  checkResume() {
+    if (this.isAlwaysOn && !this.isChatActive && !this.isSpeaking && this.state === "idle") {
+      if (this.resumeTimeoutId) {
+        clearTimeout(this.resumeTimeoutId);
+      }
+      this.resumeTimeoutId = setTimeout(() => {
+        if (this.isAlwaysOn && !this.isChatActive && !this.isSpeaking && this.state === "idle") {
+          this.startListening();
+        }
+      }, 300);
     }
   }
 
@@ -173,17 +361,17 @@ class MicManager {
 
     this.btn.classList.remove("recording", "transcribing");
 
-    if (state === "recording") {
+    if (state === "listening") {
       this.btn.classList.add("recording");
       this.btn.textContent = "🎙️";
-      this.btn.setAttribute("aria-label", "Recording voice... release to transcribe.");
+      this.btn.setAttribute("aria-label", "Listening... tap again to stop.");
     } else if (state === "transcribing") {
       this.btn.classList.add("transcribing");
       this.btn.textContent = "⏳";
       this.btn.setAttribute("aria-label", "Transcribing voice input...");
     } else {
       this.btn.textContent = "🎤";
-      this.btn.setAttribute("aria-label", "Push to talk");
+      this.btn.setAttribute("aria-label", "Tap to speak");
     }
   }
 
@@ -211,3 +399,5 @@ if (document.readyState === "loading") {
 } else {
   window.micManager.init();
 }
+
+

@@ -117,10 +117,13 @@ class VoiceManager {
     this.playNextIfNeeded();
   }
 
-  // Synchronize state with window.avatarManager
+  // Synchronize state with window.avatarManager and window.micManager
   updateSpeakingState() {
     if (window.avatarManager && typeof window.avatarManager.setSpeaking === "function") {
       window.avatarManager.setSpeaking(this.isPlaying);
+    }
+    if (window.micManager && typeof window.micManager.onSpeakingStateChange === "function") {
+      window.micManager.onSpeakingStateChange(this.isPlaying);
     }
   }
 }

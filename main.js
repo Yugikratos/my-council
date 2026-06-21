@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, screen } from "electron";
 import net from "node:net";
 
 // Check if the port is already bound
@@ -21,9 +21,16 @@ function isPortInUse(port) {
 }
 
 function createWindow() {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+  const winWidth = 700;
+  const winHeight = 650;
+
   const win = new BrowserWindow({
-    width: 700,
-    height: 650,
+    width: winWidth,
+    height: winHeight,
+    x: width - winWidth - 10,
+    y: height - winHeight - 10,
     frame: false,
     transparent: true,
     alwaysOnTop: true,

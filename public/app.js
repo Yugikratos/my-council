@@ -176,6 +176,14 @@ formEl.addEventListener("submit", async (e) => {
     window.voiceManager.stop();
   }
 
+  // Stop any active microphone listening when manually submitting a chat message
+  if (window.micManager) {
+    window.micManager.isChatActive = true;
+    if (window.micManager.state === "listening") {
+      window.micManager.stopRecording(true); // isCancel = true
+    }
+  }
+
   const persona = activePersona();
   if (!persona) return; // personas haven't loaded yet
 
@@ -287,6 +295,11 @@ formEl.addEventListener("submit", async (e) => {
       
       if (window.avatarManager) {
         window.avatarManager.setTalking(false);
+      }
+
+      // Notify MicManager that the turn is complete!
+      if (window.micManager && typeof window.micManager.onChatTurnComplete === "function") {
+        window.micManager.onChatTurnComplete();
       }
     } else {
       replyBody.parentElement?.classList.remove("cursor");
