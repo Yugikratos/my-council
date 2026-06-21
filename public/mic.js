@@ -1,8 +1,8 @@
-// My Council — Toggle-with-Silence-Detection voice input manager
+// My Council — Voice-activation (toggle + silence detection) voice input manager
 // This file executes entirely on the client, managing mic stream recording, AudioContext monitoring, and STT API POST requests.
 
 const SILENCE_TIMEOUT = 7000; // ms to wait after last speech before auto-stopping
-const SPEECH_THRESHOLD = 0.015; // RMS amplitude threshold for speech detection
+const SPEECH_THRESHOLD = 0.015; // default fallback RMS amplitude threshold for speech detection
 
 class MicManager {
   constructor() {
@@ -30,6 +30,12 @@ class MicManager {
     this.isAlwaysOn = false;
     this.isChatActive = false;
     this.isSpeaking = false;
+    
+    // Dynamic speech calibration & duration ceiling variables
+    this.speechThreshold = 0.015;
+    this.isCalibrating = false;
+    this.calibrationSamples = [];
+    this.maxDurationId = null;
   }
 
   // Bind toggle triggers once elements are available
@@ -54,8 +60,14 @@ class MicManager {
     }
 
     if (this.state === "idle") {
-      this.isAlwaysOn = true;
-      await this.startListening();
+      if (this.isAlwaysOn) {
+        this.isAlwaysOn = false;
+        this.cleanupStream();
+        this.updateState("idle");
+      } else {
+        this.isAlwaysOn = true;
+        await this.startListening();
+      }
     } else if (this.state === "listening") {
       // Manual stop
       this.isAlwaysOn = false;
@@ -63,6 +75,8 @@ class MicManager {
     } else if (this.state === "transcribing") {
       // Cancel continuous listening during transcription
       this.isAlwaysOn = false;
+      this.cleanupStream();
+      this.updateState("transcribing");
     }
   }
 
@@ -81,7 +95,13 @@ class MicManager {
       this.hasSpeechBeenDetected = false;
       this.audioChunks = [];
 
-      // Request microphone permissions
+      // Arm hard recording duration cap (45s)
+      this.maxDurationId = setTimeout(() => {
+        console.log("[mic] Max recording duration reached. Automatically stopping.");
+        this.stopRecording(false);
+      }, 45000);
+
+      // Request/reuse microphone stream
       if (!this.stream) {
         this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       }
@@ -125,11 +145,26 @@ class MicManager {
       this.sourceNode = this.audioContext.createMediaStreamSource(this.stream);
       this.sourceNode.connect(this.analyser);
 
+      // Start dynamic threshold calibration for first 300ms
+      this.isCalibrating = true;
+      this.calibrationSamples = [];
+      setTimeout(() => {
+        if (this.state === "listening" && this.isCalibrating) {
+          const avg = this.calibrationSamples.reduce((a, b) => a + b, 0) / (this.calibrationSamples.length || 1);
+          const max = Math.max(...this.calibrationSamples, 0);
+          
+          // Calibrate threshold: 2.5x the max ambient noise, clamped between 0.01 and 0.05
+          this.speechThreshold = Math.min(0.05, Math.max(0.01, max * 2.5));
+          this.isCalibrating = false;
+          console.log(`[mic] Calibrated speech threshold to ${this.speechThreshold.toFixed(4)} (ambient avg: ${avg.toFixed(4)}, max: ${max.toFixed(4)})`);
+        }
+      }, 300);
+
       // Start the volume analysis loop
       this.startVolumeLoop();
 
       this.mediaRecorder.start();
-      console.log("[mic] Listening started. Monitoring silence...");
+      console.log("[mic] Listening started. Calibrating and monitoring silence...");
     } catch (err) {
       console.error("[mic] Microphone access or AudioContext error:", err);
       let noticeMsg = "Microphone access failed.";
@@ -162,8 +197,14 @@ class MicManager {
       }
       const rms = Math.sqrt(sum / bufferLength);
 
-      // Check if sound level crosses the speech threshold
-      if (rms > SPEECH_THRESHOLD) {
+      if (this.isCalibrating) {
+        this.calibrationSamples.push(rms);
+        return; // Skip speech/silence checks during 300ms calibration
+      }
+
+      // Check if sound level crosses the calibrated speech threshold
+      const threshold = this.speechThreshold || SPEECH_THRESHOLD;
+      if (rms > threshold) {
         if (!this.hasSpeechBeenDetected) {
           this.hasSpeechBeenDetected = true;
           console.log("[mic] Speech detected. Silence timer armed.");
@@ -184,6 +225,12 @@ class MicManager {
   // Stop recording sequence
   stopRecording(isCancel = false) {
     if (this.state !== "listening") return;
+
+    // Clear hard ceiling duration timeout
+    if (this.maxDurationId) {
+      clearTimeout(this.maxDurationId);
+      this.maxDurationId = null;
+    }
 
     // Determine if we should attempt transcription
     this.shouldTranscribe = this.hasSpeechBeenDetected && !isCancel;
@@ -214,14 +261,19 @@ class MicManager {
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
       this.mediaRecorder.stop();
     } else {
-      this.cleanupStream();
+      if (!this.isAlwaysOn) {
+        this.cleanupStream();
+      }
       this.updateState("idle");
+      this.checkResume();
     }
   }
 
   // Handle the recorder stopped event
   async handleRecorderStop() {
-    this.cleanupStream();
+    if (!this.isAlwaysOn) {
+      this.cleanupStream();
+    }
 
     if (this.shouldTranscribe) {
       await this.onRecordingStopped();
@@ -247,6 +299,10 @@ class MicManager {
 
   // General absolute cleanup
   cleanup() {
+    if (this.maxDurationId) {
+      clearTimeout(this.maxDurationId);
+      this.maxDurationId = null;
+    }
     if (this.volumeLoopId) {
       clearInterval(this.volumeLoopId);
       this.volumeLoopId = null;
@@ -354,12 +410,20 @@ class MicManager {
     }
   }
 
+  notifyChatStart() {
+    this.isChatActive = true;
+    if (this.state === "listening") {
+      this.stopRecording(true); // isCancel = true
+    }
+  }
+
   // Transitions classes and text/aria-labels on the mic button element
   updateState(state) {
     this.state = state;
     if (!this.btn) return;
 
     this.btn.classList.remove("recording", "transcribing");
+    this.btn.classList.toggle("always-on", this.isAlwaysOn);
 
     if (state === "listening") {
       this.btn.classList.add("recording");
@@ -371,7 +435,11 @@ class MicManager {
       this.btn.setAttribute("aria-label", "Transcribing voice input...");
     } else {
       this.btn.textContent = "🎤";
-      this.btn.setAttribute("aria-label", "Tap to speak");
+      if (this.isAlwaysOn) {
+        this.btn.setAttribute("aria-label", "Voice activation active; waiting to resume.");
+      } else {
+        this.btn.setAttribute("aria-label", "Tap to speak (voice activation)");
+      }
     }
   }
 
@@ -379,8 +447,11 @@ class MicManager {
   showNotice(message) {
     const chatEl = document.getElementById("chat");
     if (chatEl) {
+      // Remove any existing mic notices to prevent accumulation
+      chatEl.querySelectorAll(".mic-notice").forEach(n => n.remove());
+
       const n = document.createElement("div");
-      n.className = "notice";
+      n.className = "notice mic-notice";
       n.textContent = message;
       chatEl.appendChild(n);
       chatEl.scrollTop = chatEl.scrollHeight;
