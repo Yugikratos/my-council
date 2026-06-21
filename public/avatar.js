@@ -11,6 +11,8 @@ class AvatarManager {
     this.isSpeaking = false;
     this.activeId = null;
     this.emotion = "idle"; // Custom emotion states: "idle", "angry", "happy", etc.
+    this._loadToken = 0;
+    this._lastTargetSrc = null;
   }
 
   // Switches the portrait image
@@ -18,6 +20,7 @@ class AvatarManager {
     if (!this.avatarEl) return;
     this.activeId = id;
     this.emotion = "idle"; // Reset emotion on switch
+    this._lastTargetSrc = null; // Clear so targetSrc is re-evaluated and loaded
     
     // Add a quick fade out effect
     this.avatarEl.style.opacity = 0;
@@ -85,13 +88,21 @@ class AvatarManager {
       targetSrc = `avatars/${this.activeId}-thinking.gif`;
     }
 
+    if (targetSrc === this._lastTargetSrc) {
+      return;
+    }
+    this._lastTargetSrc = targetSrc;
+
     const fullSrc = targetSrc + `?v=${CACHE_BUSTER}`;
+    const token = ++this._loadToken;
 
     // Preload image in memory to prevent white flashes, fallback to PNG on error
     const img = new Image();
     img.src = fullSrc;
     img.onload = () => {
-      if (this.avatarEl) this.avatarEl.src = fullSrc;
+      if (token === this._loadToken && this.avatarEl) {
+        this.avatarEl.src = fullSrc;
+      }
     };
     img.onerror = () => {
       // Fallback cascade: if custom emotion/state GIF is missing, check state fallback
@@ -109,19 +120,21 @@ class AvatarManager {
         const fbImg = new Image();
         fbImg.src = fallbackSrc + `?v=${CACHE_BUSTER}`;
         fbImg.onload = () => {
-          if (this.avatarEl) this.avatarEl.src = fallbackSrc + `?v=${CACHE_BUSTER}`;
+          if (token === this._loadToken && this.avatarEl) {
+            this.avatarEl.src = fallbackSrc + `?v=${CACHE_BUSTER}`;
+          }
         };
         fbImg.onerror = () => {
           // Absolute fallback to base PNG
           const baseSrc = `avatars/${this.activeId}.png`;
-          if (this.avatarEl && !this.avatarEl.src.includes(baseSrc)) {
+          if (token === this._loadToken && this.avatarEl && !this.avatarEl.src.includes(baseSrc)) {
             this.avatarEl.src = baseSrc + `?v=${CACHE_BUSTER}`;
           }
         };
       } else if (this.avatarEl) {
         // Base fallback
         const baseSrc = `avatars/${this.activeId}.png`;
-        if (!this.avatarEl.src.includes(baseSrc)) {
+        if (token === this._loadToken && !this.avatarEl.src.includes(baseSrc)) {
           this.avatarEl.src = baseSrc + `?v=${CACHE_BUSTER}`;
         }
       }
