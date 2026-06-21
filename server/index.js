@@ -233,6 +233,7 @@ app.post("/api/chat", async (req, res) => {
       }
     }
   } catch (err) {
+    console.error("[api/chat] Error during generation:", err);
     if (err instanceof OllamaUnavailableError) {
       send({
         type: "error",
