@@ -62,8 +62,6 @@ body {
   box-shadow: none;
   /* Make the avatar draggable so the widget can be moved around the desktop */
   -webkit-app-region: drag;
-  /* Idle animation applied to container */
-  animation: breathe 6s ease-in-out infinite;
 }
 
 /* Sleek floating collapse/expand toggle button */
@@ -110,6 +108,9 @@ body {
   transition: opacity 0.15s ease-in-out;
   position: relative;
   z-index: 2; /* Sits in front of the background elements */
+  /* Idle breathe animation applied to the image itself, scaling from the bottom */
+  animation: breathe 6s ease-in-out infinite;
+  transform-origin: bottom;
 }
 
 /* Talking/Generating Animation (Red Contour Glow) */
@@ -119,8 +120,8 @@ body {
 }
 
 @keyframes breathe {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-4px) scale(1.01); }
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.005, 1.02); }
 }
 
 @keyframes pulseContour {
