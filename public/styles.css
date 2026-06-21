@@ -1,5 +1,5 @@
 /* My Council — character-themed visual overhaul */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@500;700&family=Permanent+Marker&family=Quicksand:wght@500;700&family=Rye&family=MedievalSharp&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@500;700&family=Permanent+Marker&family=Quicksand:wght@500;700&family=Rye&family=MedievalSharp&family=Pixelify+Sans:wght@400;500;700&family=VT323&display=swap');
 
 :root {
   --bg: #0f1012;
@@ -11,7 +11,8 @@
   --muted: #8a8a8a;
   --accent: #a23b2d;
   
-  --font-family: "Segoe UI", system-ui, sans-serif;
+  --title-font: "Segoe UI", system-ui, sans-serif;
+  --text-font: "Segoe UI", system-ui, sans-serif;
   --border-radius: 16px;
   --chat-border: 1px solid #3c1410;
   --chat-glow: 0 10px 40px rgba(0, 0, 0, 0.6);
@@ -37,7 +38,8 @@
   --text: #dfdbd7;
   --muted: #7f7a75;
   --accent: #8b1e10;
-  --font-family: 'MedievalSharp', 'Cinzel', Georgia, serif;
+  --title-font: 'MedievalSharp', 'Cinzel', Georgia, serif;
+  --text-font: 'Pixelify Sans', sans-serif;
   --chat-border: 2px solid #5a140b;
   --chat-glow: 0 10px 40px rgba(139, 30, 16, 0.25);
   --scrollbar-thumb: #331512;
@@ -53,7 +55,8 @@
   --text: #fae1e6;
   --muted: #9d6874;
   --accent: #ff2a5f;
-  --font-family: 'Cinzel Decorative', Impact, sans-serif;
+  --title-font: 'Cinzel Decorative', Impact, sans-serif;
+  --text-font: 'Pixelify Sans', sans-serif;
   --chat-border: 1.5px solid #ff2a5f;
   --chat-glow: 0 10px 40px rgba(255, 42, 95, 0.3);
   --scrollbar-thumb: #47111e;
@@ -69,7 +72,8 @@
   --text: #dbeaf5;
   --muted: #739ac2;
   --accent: #00a8ff;
-  --font-family: 'Cinzel', 'Times New Roman', serif;
+  --title-font: 'Cinzel', 'Times New Roman', serif;
+  --text-font: 'VT323', monospace;
   --chat-border: 1.5px solid #00a8ff;
   --chat-glow: 0 10px 40px rgba(0, 168, 255, 0.3);
   --scrollbar-thumb: #112d52;
@@ -85,7 +89,8 @@
   --text: #ecdcb9;
   --muted: #9d8e72;
   --accent: #5b784c;
-  --font-family: 'Rye', Georgia, serif;
+  --title-font: 'Rye', Georgia, serif;
+  --text-font: 'Pixelify Sans', sans-serif;
   --chat-border: 2px dashed #5b784c;
   --chat-glow: 0 10px 40px rgba(91, 120, 76, 0.25);
   --scrollbar-thumb: #3a3224;
@@ -101,7 +106,8 @@
   --text: #ffe2cf;
   --muted: #b99275;
   --accent: #ff781e;
-  --font-family: 'Permanent Marker', 'Comic Sans MS', sans-serif;
+  --title-font: 'Permanent Marker', 'Comic Sans MS', sans-serif;
+  --text-font: 'Pixelify Sans', sans-serif;
   --chat-border: 1.5px solid #ff781e;
   --chat-glow: 0 10px 40px rgba(255, 120, 30, 0.3);
   --scrollbar-thumb: #442a17;
@@ -117,7 +123,8 @@
   --text: #fae0ea;
   --muted: #b18ea6;
   --accent: #f48fb1;
-  --font-family: 'Quicksand', 'Nunito', sans-serif;
+  --title-font: 'Quicksand', sans-serif;
+  --text-font: 'Pixelify Sans', sans-serif;
   --border-radius: 24px; /* More rounded bubbles and container for cute theme */
   --chat-border: 1.5px solid #f48fb1;
   --chat-glow: 0 10px 40px rgba(244, 143, 177, 0.3);
@@ -134,7 +141,7 @@ body {
   height: 100%;
   background: transparent !important;
   color: var(--text);
-  font-family: var(--font-family);
+  font-family: var(--text-font);
   overflow: hidden;
   transition: color 0.3s ease;
 }
@@ -290,6 +297,7 @@ select {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  font-family: var(--title-font);
 }
 
 /* Persona picker — the six names sit in the header, active one highlighted. */
@@ -306,6 +314,7 @@ select {
   border: 1px solid #2c3034;
   border-radius: 999px;
   font: inherit;
+  font-family: var(--title-font);
   font-size: 13px;
   letter-spacing: 0.5px;
   cursor: pointer;
@@ -337,6 +346,7 @@ select {
   font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
+  font-family: var(--title-font);
 }
 
 /* Non-fatal system notice (e.g. long-term memory unavailable). */
@@ -457,10 +467,12 @@ select {
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 8px;
+  border-radius: calc(var(--border-radius) / 2);
   font: inherit;
+  font-family: var(--title-font);
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.3s ease, border-radius 0.3s ease;
 }
 
 .send:disabled {
@@ -697,5 +709,55 @@ select {
 .mic-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* Character Throne SVG Watermarks */
+.chat-container {
+  position: relative;
+}
+
+.chat-container::after {
+  content: "";
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  width: 140px;
+  height: 140px;
+  opacity: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: contain;
+  transition: background-image 0.3s ease, opacity 0.3s ease;
+  z-index: 1;
+}
+
+.theme-kratos .chat-container::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%238b1e10' stroke-width='2.5'%3E%3Ccircle cx='50' cy='50' r='30' stroke-dasharray='4 2'/%3E%3Cpath d='M20 20 L80 80 M80 20 L20 80'/%3E%3C/svg%3E");
+  opacity: 0.12;
+}
+
+.theme-dante .chat-container::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23ff2a5f' stroke-width='2.5'%3E%3Ccircle cx='50' cy='40' r='15'/%3E%3Cpath d='M40 38 L60 38 M45 48 L55 48'/%3E%3Cpath d='M15 15 L85 85 M85 15 L15 85'/%3E%3C/svg%3E");
+  opacity: 0.12;
+}
+
+.theme-vergil .chat-container::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%2300a8ff' stroke-width='2.5'%3E%3Cpath d='M10 90 L90 10 M35 45 L65 55'/%3E%3Cpolygon points='50,20 80,50 50,80 20,50'/%3E%3C/svg%3E");
+  opacity: 0.12;
+}
+
+.theme-jiraiya .chat-container::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%235b784c' stroke-width='2.5'%3E%3Crect x='25' y='20' width='50' height='60' rx='5'/%3E%3Ccircle cx='50' cy='50' r='10'/%3E%3Cline x1='15' y1='20' x2='15' y2='80' stroke-width='4'/%3E%3Cline x1='85' y1='20' x2='85' y2='80' stroke-width='4'/%3E%3C/svg%3E");
+  opacity: 0.12;
+}
+
+.theme-naruto .chat-container::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23ff781e' stroke-width='3'%3E%3Cpath d='M50 50 A 20 20 0 1 0 70 50 A 15 15 0 1 0 55 50 A 10 10 0 1 0 50 50' /%3E%3C/svg%3E");
+  opacity: 0.12;
+}
+
+.theme-anya .chat-container::after {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23f48fb1' stroke-width='2.5'%3E%3Ccircle cx='35' cy='50' r='15'/%3E%3Ccircle cx='65' cy='50' r='15'/%3E%3Cpath d='M20 30 L30 40 M80 30 L70 40'/%3E%3Ccircle cx='50' cy='70' r='8'/%3E%3C/svg%3E");
+  opacity: 0.15;
 }
 
