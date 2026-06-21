@@ -33,6 +33,13 @@ async function loadPersonas() {
     personas = data.personas;
     activeId = data.default ?? personas[0]?.id;
     renderRoster();
+    
+    // Set initial theme class on the app container
+    const appEl = document.querySelector(".app");
+    if (appEl && activeId) {
+      appEl.className = "app " + `theme-${activeId}`;
+    }
+    
     if (window.avatarManager && activeId) {
       window.avatarManager.switchPersona(activeId);
     }
@@ -58,6 +65,13 @@ function switchPersona(id) {
   if (id === activeId) return;
   activeId = id;
   renderRoster();
+  
+  // Set theme class on the app container
+  const appEl = document.querySelector(".app");
+  if (appEl) {
+    appEl.className = "app " + `theme-${id}`;
+  }
+  
   // One continuous session: keep the transcript, just mark who's taking over.
   addDivider(activePersona().displayName);
   

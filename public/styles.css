@@ -1,4 +1,5 @@
-/* My Council — a spare, dark theme that suits Kratos. */
+/* My Council — character-themed visual overhaul */
+@import url('https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@500;700&family=Permanent+Marker&family=Quicksand:wght@500;700&family=Rye&family=MedievalSharp&display=swap');
 
 :root {
   --bg: #0f1012;
@@ -10,12 +11,117 @@
   --muted: #8a8a8a;
   --accent: #a23b2d;
   
+  --font-family: "Segoe UI", system-ui, sans-serif;
+  --border-radius: 16px;
+  --chat-border: 1px solid #3c1410;
+  --chat-glow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  --scrollbar-thumb: #2a3034;
+  
   /* Deep Mode Variables */
   --deep-accent: #3a5ccc;
   --deep-bg: #131722;
   --deep-border: #1f3780;
   --deep-glow: rgba(58, 92, 204, 0.4);
   --deep-glow-active: rgba(58, 92, 204, 0.8);
+}
+
+/* Character Specific Theme Overrides */
+
+/* Kratos - Spartan Runic Stone */
+.theme-kratos {
+  --bg: #0c0c0d;
+  --panel: #121214;
+  --user: #1c1e21;
+  --persona: #221210;
+  --persona-border: #8b1e10;
+  --text: #dfdbd7;
+  --muted: #7f7a75;
+  --accent: #8b1e10;
+  --font-family: 'MedievalSharp', 'Cinzel', Georgia, serif;
+  --chat-border: 2px solid #5a140b;
+  --chat-glow: 0 10px 40px rgba(139, 30, 16, 0.25);
+  --scrollbar-thumb: #331512;
+}
+
+/* Dante - Gothic Rebellion / Red Leather */
+.theme-dante {
+  --bg: #0e0406;
+  --panel: #18070b;
+  --user: #260d15;
+  --persona: #330811;
+  --persona-border: #ff2a5f;
+  --text: #fae1e6;
+  --muted: #9d6874;
+  --accent: #ff2a5f;
+  --font-family: 'Cinzel Decorative', Impact, sans-serif;
+  --chat-border: 1.5px solid #ff2a5f;
+  --chat-glow: 0 10px 40px rgba(255, 42, 95, 0.3);
+  --scrollbar-thumb: #47111e;
+}
+
+/* Vergil - Cold Blue Crystal Cathedral */
+.theme-vergil {
+  --bg: #040910;
+  --panel: #08101c;
+  --user: #0d1b30;
+  --persona: #0a233e;
+  --persona-border: #00a8ff;
+  --text: #dbeaf5;
+  --muted: #739ac2;
+  --accent: #00a8ff;
+  --font-family: 'Cinzel', 'Times New Roman', serif;
+  --chat-border: 1.5px solid #00a8ff;
+  --chat-glow: 0 10px 40px rgba(0, 168, 255, 0.3);
+  --scrollbar-thumb: #112d52;
+}
+
+/* Jiraiya - Sage Toad Scroll */
+.theme-jiraiya {
+  --bg: #15120e;
+  --panel: #201b14;
+  --user: #312a1f;
+  --persona: #222e22;
+  --persona-border: #5b784c;
+  --text: #ecdcb9;
+  --muted: #9d8e72;
+  --accent: #5b784c;
+  --font-family: 'Rye', Georgia, serif;
+  --chat-border: 2px dashed #5b784c;
+  --chat-glow: 0 10px 40px rgba(91, 120, 76, 0.25);
+  --scrollbar-thumb: #3a3224;
+}
+
+/* Naruto - Hyperactive Leaf Orange */
+.theme-naruto {
+  --bg: #1a0d04;
+  --panel: #261509;
+  --user: #392211;
+  --persona: #0c293c;
+  --persona-border: #2bb5ff;
+  --text: #ffe2cf;
+  --muted: #b99275;
+  --accent: #ff781e;
+  --font-family: 'Permanent Marker', 'Comic Sans MS', sans-serif;
+  --chat-border: 1.5px solid #ff781e;
+  --chat-glow: 0 10px 40px rgba(255, 120, 30, 0.3);
+  --scrollbar-thumb: #442a17;
+}
+
+/* Anya - Cute Pastel Star Peanut */
+.theme-anya {
+  --bg: #140d12;
+  --panel: #1f141b;
+  --user: #2d1828;
+  --persona: #3b1933;
+  --persona-border: #f48fb1;
+  --text: #fae0ea;
+  --muted: #b18ea6;
+  --accent: #f48fb1;
+  --font-family: 'Quicksand', 'Nunito', sans-serif;
+  --border-radius: 24px; /* More rounded bubbles and container for cute theme */
+  --chat-border: 1.5px solid #f48fb1;
+  --chat-glow: 0 10px 40px rgba(244, 143, 177, 0.3);
+  --scrollbar-thumb: #3b2231;
 }
 
 * {
@@ -28,8 +134,17 @@ body {
   height: 100%;
   background: transparent !important;
   color: var(--text);
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--font-family);
   overflow: hidden;
+  transition: color 0.3s ease;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
 .app {
@@ -134,18 +249,18 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: rgba(23, 25, 28, 0.85); /* Semi-transparent obsidian runic slab */
+  background: var(--panel);
+  opacity: 0.92;
   backdrop-filter: blur(16px);
-  border: 1px solid #3c1410; /* Gothic crimson border */
-  border-radius: 16px;
+  border: var(--chat-border);
+  border-radius: var(--border-radius);
   overflow: hidden;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--chat-glow);
   /* Make the chat panel interactive and non-draggable */
   -webkit-app-region: no-drag;
-  opacity: 1;
   transform: scaleX(1);
   transform-origin: right; /* Expand/collapse inwards from the right edge */
-  transition: flex 0.3s ease-in-out, width 0.3s ease-in-out, margin 0.3s ease-in-out, opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+  transition: flex 0.3s ease-in-out, width 0.3s ease-in-out, margin 0.3s ease-in-out, opacity 0.3s ease-in-out, transform 0.3s ease-in-out, background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, border-radius 0.3s ease;
 }
 
 .app.collapsed .chat-container {
@@ -167,6 +282,7 @@ body {
   padding: 16px 22px;
   border-bottom: 1px solid #25282c;
   background: var(--panel);
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .title {
@@ -257,8 +373,9 @@ body {
 }
 
 .chat::-webkit-scrollbar-thumb {
-  background: #2a3034;
+  background: var(--scrollbar-thumb, #2a3034);
   border-radius: 999px;
+  transition: background 0.3s ease;
 }
 
 .chat::-webkit-scrollbar-thumb:hover {
@@ -268,10 +385,11 @@ body {
 .msg {
   max-width: 78%;
   padding: 11px 14px;
-  border-radius: 10px;
+  border-radius: calc(var(--border-radius) / 1.5);
   line-height: 1.5;
   white-space: pre-wrap;
   word-wrap: break-word;
+  transition: background-color 0.3s ease, border-color 0.3s ease, border-radius 0.3s ease;
 }
 
 .msg.user {
@@ -312,6 +430,7 @@ body {
   padding: 16px 22px;
   border-top: 1px solid #25282c;
   background: var(--panel);
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
 .input {
@@ -322,9 +441,10 @@ body {
   background: var(--bg);
   color: var(--text);
   border: 1px solid #2c3034;
-  border-radius: 8px;
+  border-radius: calc(var(--border-radius) / 2);
   font: inherit;
   line-height: 1.4;
+  transition: background-color 0.3s ease, border-color 0.3s ease, border-radius 0.3s ease;
 }
 
 .input:focus {
