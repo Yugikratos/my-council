@@ -90,7 +90,7 @@ my-council/
     ├── app.js             # chat logic, SSE streaming, /deep handling
     ├── avatar.js          # AvatarManager: portrait/GIF state swap (idle/thinking/talking)
     ├── voice.js           # VoiceManager: TTS playback queue + talking-state sync
-    ├── mic.js             # MicManager: push-to-talk recording + silence detection
+    ├── mic.js             # MicManager: voice activation (toggle + silence detection)
     └── avatars/           # per-persona portrait PNG + thinking/talking GIFs
 ```
 
