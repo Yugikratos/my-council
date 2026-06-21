@@ -26,11 +26,14 @@ function createWindow() {
   const winWidth = 700;
   const winHeight = 650;
 
+  const x = Math.max(0, width - winWidth - 10);
+  const y = Math.max(0, height - winHeight - 10);
+
   const win = new BrowserWindow({
     width: winWidth,
     height: winHeight,
-    x: width - winWidth - 10,
-    y: height - winHeight - 10,
+    x: x,
+    y: y,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
