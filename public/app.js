@@ -24,6 +24,15 @@ function activePersona() {
   return personas.find((p) => p.id === activeId);
 }
 
+function applyTheme(id) {
+  const appEl = document.querySelector(".app");
+  if (!appEl) return;
+  [...appEl.classList].forEach((c) => {
+    if (c.startsWith("theme-")) appEl.classList.remove(c);
+  });
+  appEl.classList.add(`theme-${id}`);
+}
+
 // --- Persona roster (header picker) ---------------------------------------
 
 async function loadPersonas() {
@@ -35,9 +44,8 @@ async function loadPersonas() {
     renderRoster();
     
     // Set initial theme class on the app container
-    const appEl = document.querySelector(".app");
-    if (appEl && activeId) {
-      appEl.className = "app " + `theme-${activeId}`;
+    if (activeId) {
+      applyTheme(activeId);
     }
     
     if (window.avatarManager && activeId) {
@@ -67,10 +75,7 @@ function switchPersona(id) {
   renderRoster();
   
   // Set theme class on the app container
-  const appEl = document.querySelector(".app");
-  if (appEl) {
-    appEl.className = "app " + `theme-${id}`;
-  }
+  applyTheme(id);
   
   // One continuous session: keep the transcript, just mark who's taking over.
   addDivider(activePersona().displayName);
@@ -192,10 +197,7 @@ formEl.addEventListener("submit", async (e) => {
 
   // Stop any active microphone listening when manually submitting a chat message
   if (window.micManager) {
-    window.micManager.isChatActive = true;
-    if (window.micManager.state === "listening") {
-      window.micManager.stopRecording(true); // isCancel = true
-    }
+    window.micManager.notifyChatStart();
   }
 
   const persona = activePersona();
