@@ -6,12 +6,14 @@ on your life. Everything runs locally: no cloud, no token cost.
 
 See [`CLAUDE.md`](./CLAUDE.md) for the full vision, personas, and architecture.
 
-## Status — MVP step 6 (desktop widget)
+## Status — MVP complete + voice
 
 The full local loop works: chat, shared cross-session memory, persona switching,
-and a desktop avatar widget. Close everything, reopen tomorrow, and any persona
-can recall relevant things from past conversations with **any** persona. Local
-TTS (voice) is the one remaining MVP step.
+a desktop avatar widget, **and voice both ways** — local Piper TTS speaks each
+reply and local faster-whisper STT lets you talk back. Close everything, reopen
+tomorrow, and any persona can recall relevant things from past conversations with
+**any** persona. All seven MVP steps are done; remaining work (wake word, richer
+lip-sync, mood tracking) is Phase 2.
 
 What works now:
 
@@ -23,6 +25,20 @@ What works now:
   avatar to move it; click 💬 to collapse/expand the chat panel. The portrait
   fade-swaps when you switch personas and pulses while a reply is generating.
   Launch with `npm run start:widget` (see [below](#run-as-a-desktop-widget-electron)).
+- **Animated avatar states:** beyond the static portrait, each persona has
+  per-state GIFs — a *thinking* loop while the reply generates and a *talking*
+  loop while TTS audio plays — with a fallback to the static PNG when an asset is
+  missing, so it never breaks on a persona that only has a base image.
+- **Local voice — both ways (optional, fail-soft):**
+  - **TTS (out):** each reply is spoken aloud by local **Piper**, with a
+    per-persona voice (deep/slow for Kratos, lighter for Anya) and optional ffmpeg
+    pitch-shift. (See [Local TTS — Piper](#local-tts--piper-optional).)
+  - **STT (in):** tap the 🎤 to talk instead of type. A local **faster-whisper**
+    service transcribes your speech; a silence detector auto-stops and submits,
+    then listening resumes after the persona replies. (See
+    [Voice input — faster-whisper](#voice-input--faster-whisper-optional).)
+  - Both are fully optional and degrade gracefully: with no Piper binary, no voice
+    models, or the STT service down, the app just runs text-only and never errors.
 - All six personas — Kratos, Dante, Vergil, Jiraiya, Naruto, Anya — each in
   character and aware it is one of the Council
 - Header persona picker; switching keeps one continuous, correctly-attributed
@@ -44,28 +60,38 @@ What works now:
 
 ```
 my-council/
-├── start-all.ps1          # launch both services (memory + app) in one go
+├── start-all.ps1          # launch all three services (memory + STT + app) in one go
+├── start.bat              # one-click: memory + STT services, then the Electron widget
 ├── main.js                # Electron entry: frameless desktop widget (npm run start:widget)
 ├── server/
-│   ├── index.js           # Express server: serves the UI + POST /api/chat
-│   ├── config.js          # Node-side config (Ollama, port, memory, cloud)
+│   ├── index.js           # Express server: serves the UI + POST /api/chat, /api/transcribe
+│   ├── config.js          # Node-side config (Ollama, port, memory, cloud, tts, stt)
 │   ├── env.js             # loads a gitignored .env (zero-dependency)
 │   ├── ollama.js          # Ollama client: streams /api/chat responses
 │   ├── cloud.js           # Gemini client for /deep turns (key from env only)
 │   ├── context.js         # builds the prompt (attribution + memory injection)
 │   ├── memory.js          # Node client for the memory service (fails soft)
+│   ├── tts.js             # Piper synthesis + per-persona voices + ffmpeg pitch (fails soft)
+│   ├── stt.js             # Node proxy to the STT service (fails soft)
 │   └── personas/          # one character sheet per persona + registry
 ├── memory-service/        # Python: local ChromaDB wrapper (the memory engine)
 │   ├── app.py             # FastAPI: /store, /retrieve, /health
 │   ├── config.py          # Python-side config (N, data path, port, model)
 │   ├── requirements.txt   # pinned deps (ChromaDB etc.)
 │   └── chroma-data/       # persisted memory (created at runtime; gitignored)
+├── stt-service/           # Python: local faster-whisper wrapper (voice input)
+│   ├── app.py             # FastAPI: /transcribe, /health (model loads once, CPU/int8)
+│   ├── config.py          # Python-side config (model size, device, port 8001)
+│   └── requirements.txt   # pinned deps (faster-whisper)
+├── tools/piper/           # vendored Piper TTS (binary + voices; gitignored, .gitkeep only)
 └── public/                # chat UI + desktop avatar
     ├── index.html
     ├── styles.css
     ├── app.js             # chat logic, SSE streaming, /deep handling
-    ├── avatar.js          # AvatarManager: portrait swap + talking animation
-    └── avatars/           # one PNG portrait per persona
+    ├── avatar.js          # AvatarManager: portrait/GIF state swap (idle/thinking/talking)
+    ├── voice.js           # VoiceManager: TTS playback queue + talking-state sync
+    ├── mic.js             # MicManager: push-to-talk recording + silence detection
+    └── avatars/           # per-persona portrait PNG + thinking/talking GIFs
 ```
 
 ## Prerequisites
@@ -75,13 +101,18 @@ my-council/
   ```powershell
   ollama pull gemma3:4b
   ```
-- **Python 3.12** for the memory service. The memory engine (ChromaDB) needs
-  native packages that don't yet have prebuilt Windows wheels on very new
-  Pythons (e.g. 3.14), so use 3.12 specifically. Install it once:
+- **Python 3.12** for the memory service (and the optional STT service). The
+  memory engine (ChromaDB) needs native packages that don't yet have prebuilt
+  Windows wheels on very new Pythons (e.g. 3.14), so use 3.12 specifically.
+  Install it once:
   ```powershell
   winget install -e --id Python.Python.3.12
   ```
   (Open a fresh terminal afterward so `py -3.12` is found.)
+- **Optional, for voice:** [Piper](#local-tts--piper-optional) for spoken replies
+  (TTS) and the [STT service](#voice-input--faster-whisper-optional) for voice
+  input. Both are opt-in — the app runs text-only without them. Their setup is in
+  those sections below.
 
 ## One-time setup
 
@@ -97,6 +128,13 @@ py -3.12 -m venv .venv
 # 3. Install the memory service's pinned dependencies into that venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r memory-service\requirements.txt
+
+# 4. (Optional — voice input) a SEPARATE venv for the STT service, so
+#    faster-whisper's deps stay clear of the memory service's pinned set.
+#    start-all.ps1 / start.bat fall back to .venv if this isn't present.
+py -3.12 -m venv .venv-stt
+.\.venv-stt\Scripts\python.exe -m pip install --upgrade pip
+.\.venv-stt\Scripts\python.exe -m pip install -r stt-service\requirements.txt
 ```
 
 > If `.\.venv\Scripts\Activate.ps1` is ever blocked by execution policy, you do
@@ -111,21 +149,30 @@ Make sure Ollama is running, then from the repo root:
 .\start-all.ps1
 ```
 
-This opens two windows — the **memory service** (port 8000) and the **My Council
-app** (port 3000). On first run the memory service downloads the embedding model
-(~80 MB, one time), so give it a few seconds. Then open:
+This opens three windows — the **memory service** (port 8000), the **STT service**
+(port 8001), and the **My Council app** (port 3000). On first run the memory
+service downloads its embedding model (~80 MB) and the STT service downloads the
+faster-whisper model (~145 MB), each one time, so give them a few seconds. Then
+open:
 
 ```
 http://localhost:3000
 ```
 
-### Running the two services manually (instead of start-all)
+> **One-click desktop launch:** `start.bat` does the same but launches the
+> **Electron widget** instead of a browser app — it starts the memory + STT
+> services minimized, then opens the always-on-top companion window.
+
+### Running the services manually (instead of start-all)
 
 ```powershell
 # Terminal 1 — memory service
 .\.venv\Scripts\python.exe memory-service\app.py
 
-# Terminal 2 — app
+# Terminal 2 — STT service (optional; for voice input)
+.\.venv-stt\Scripts\python.exe stt-service\app.py
+
+# Terminal 3 — app
 npm start
 ```
 
@@ -245,13 +292,45 @@ is never affected, you just lose the deepening effect. A persona with `pitch` of
 Synthesis runs CPU-side, so it doesn't compete with Gemma for the GTX 1650's
 4 GB of VRAM — the GPU stays free for the language model.
 
+## Voice input — faster-whisper (optional)
+
+The mirror of TTS: instead of typing, tap the **🎤** and talk. A small local
+**faster-whisper** service (`stt-service/`, port 8001) transcribes your speech
+and drops the text into the composer, which submits like any other turn. It runs
+CPU-only at `int8` so — like Piper — it never competes with Gemma for the GPU.
+
+It's **fully optional and fails soft** end-to-end: deny mic permission, record
+silence, or leave the STT service off and you just get a brief notice — chat is a
+separate path and is never affected. The proxy route (`/api/transcribe`) is gated
+behind `STT_ENABLED` (default on); the browser never talks to the Python service
+directly.
+
+### How it works (UX)
+
+Tap 🎤 to start listening. A built-in **silence detector** auto-stops a few
+seconds after you finish speaking, transcribes, and submits the turn — then
+listening **resumes automatically** once the persona finishes its spoken reply,
+so you can hold a hands-free back-and-forth. Tap 🎤 again to stop, or just submit
+a typed message and it stands down. Tuning (silence window, speech threshold)
+lives at the top of [`public/mic.js`](./public/mic.js).
+
+### Setup
+
+The STT service uses its own Python 3.12 venv (`.venv-stt`) — see step 4 of
+[One-time setup](#one-time-setup). `start-all.ps1` / `start.bat` launch it
+automatically (falling back to the shared `.venv` if `.venv-stt` is absent). On
+first run faster-whisper downloads its model (~145 MB for the default `base`)
+into the Hugging Face cache. Model size, device, and decoding params are
+configurable in [`stt-service/config.py`](./stt-service/config.py) (e.g.
+`COUNCIL_STT_MODEL=small` for more accuracy at higher latency).
+
 ## Persistence test (prove memory survives a restart and is shared)
 
-1. Start both services (`.\start-all.ps1`) and open http://localhost:3000.
+1. Start the services (`.\start-all.ps1`) and open http://localhost:3000.
 2. With **Kratos** active, tell him something specific, e.g.
    *"My dog's name is Mochi and she just turned three."*
-3. **Fully stop both services** (close both windows, or Ctrl+C in each).
-4. Start both again (`.\start-all.ps1`), reload the page.
+3. **Fully stop the services** (close the windows, or Ctrl+C in each).
+4. Start them again (`.\start-all.ps1`), reload the page.
 5. Switch to **Anya** and ask: *"Do you remember my dog?"*
 6. Anya should recall **Mochi** and attribute it correctly — that you mentioned
    it to **Kratos** earlier — proving memory persisted across a full restart and
@@ -282,15 +361,23 @@ Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing | Select-Object 
 | Piper binary   | `PIPER_PATH`     | `tools/piper/piper.exe`       |
 | Voices dir     | `VOICES_DIR`     | `tools/piper/voices`          |
 | ffmpeg binary  | `FFMPEG_PATH`    | `ffmpeg` _(from PATH; for_ `pitch`_)_ |
+| STT on/off     | `STT_ENABLED`    | `true`                        |
+| STT URL        | `STT_URL`        | `http://127.0.0.1:8001`       |
+| STT timeout    | `STT_TIMEOUT_MS` | `30000`                       |
 
 > The Gemini API key is read **only** from the environment or a gitignored
 > `.env` — never hardcoded, never stored in `config.js`. See
 > [Hybrid cloud — `/deep`](#hybrid-cloud--deep-optional).
 
-**Python side** — [`memory-service/config.py`](./memory-service/config.py):
-retrieval breadth **N** (`DEFAULT_TOP_N`, default 4), data path, collection
-name, embedding model, host/port. The ChromaDB version is pinned in
-[`requirements.txt`](./memory-service/requirements.txt).
+**Python side**
+
+- [`memory-service/config.py`](./memory-service/config.py): retrieval breadth
+  **N** (`DEFAULT_TOP_N`, default 4), data path, collection name, embedding model,
+  host/port. The ChromaDB version is pinned in
+  [`requirements.txt`](./memory-service/requirements.txt).
+- [`stt-service/config.py`](./stt-service/config.py): faster-whisper model size
+  (`COUNCIL_STT_MODEL`, default `base`), compute type, beam size, language, and
+  host/port (`8001`).
 
 > **"Long-term memory is unavailable" notice in the chat?** The app is running
 > but the memory service isn't. Start it (`.\start-all.ps1`, or run `app.py`

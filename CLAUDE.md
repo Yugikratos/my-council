@@ -66,7 +66,8 @@ To support Text-to-Speech (TTS) integration, the system prompts and context inje
   - Model stored on `D:\OllamaModels`, run at 4k context length (see VRAM note under Target Hardware)
 - **Cloud LLM (optional):** Google Gemini free tier, reached only via the manual `/deep` trigger; one turn at a time, with automatic fallback to local Gemma. Key read from env / a gitignored `.env` only (see Hybrid cloud strategy).
 - **Memory:** Local ChromaDB — verbatim storage + semantic retrieval — wrapped by a small local FastAPI service the Node app calls over localhost (see the "Memory engine" decision below). *Not* MemPalace.
-- **TTS (Phase 2):** Piper or Coqui — local, free, voices matched per persona
+- **TTS:** **Piper** (chosen over Coqui) — local, free, a voice matched per persona, optional ffmpeg pitch-shift. **Implemented** (`server/tts.js`); fails soft to text-only.
+- **STT (voice input):** **faster-whisper** — local, free, CPU/int8, its own FastAPI service (`stt-service/`, port 8001). **Implemented**; browser mic → `POST /api/transcribe` → proxy (`server/stt.js`), fails soft.
 - **Frontend:** Plain HTML/CSS/JS served by Express — no React, no build step. The avatar UI + chat widget are hand-written (React was dropped as unnecessary overhead for a single-window local app).
 - **Desktop shell:** Electron (`main.js`) — **implemented** (was TBD). A frameless, transparent, always-on-top window renders the active persona as a draggable desktop companion. It starts the Express server in-process if its port is free, or hooks an already-running one.
 - **Backend:** Node.js
@@ -118,13 +119,21 @@ Eventually each persona could map to a different model tier matching their chara
 - Avatar sits in a corner of the desktop (pixelated or anime style both acceptable)
 - Start static or minimal idle animation; richer talking-sync animation is Phase 2
 - Don't over-invest in animation before the core chat + memory loop works
-- **Status (implemented):** static per-persona portraits (`public/avatars/<id>.png`) render in the Electron widget via `public/avatar.js` (`AvatarManager`). They fade-swap on persona switch and pulse while a reply is generating — with a distinct pulse for `/deep` cloud turns. The window is frameless/transparent/always-on-top, the avatar is drag-to-move, and 💬 collapses/expands the chat panel. Richer talking-sync (lip/mouth) animation remains Phase 2.
+- **Status (implemented):** per-persona portraits (`public/avatars/<id>.png`) render in the Electron widget via `public/avatar.js` (`AvatarManager`). They fade-swap on persona switch and pulse while a reply is generating — with a distinct pulse for `/deep` cloud turns. The window is frameless/transparent/always-on-top, the avatar is drag-to-move, and 💬 collapses/expands the chat panel.
+- **Status (implemented — animated states):** `AvatarManager` now swaps to per-persona animated GIFs by state: `<id>-thinking.gif` while a reply is generating, `<id>-talking.gif` while TTS audio is playing, falling back to the static `<id>.png` when idle. It also supports explicit emotion poses (`<id>-<emotion>.gif`) via `setEmotion()`. Each load preloads in memory (no white flash) and cascades to the next-best asset if a GIF is missing, so a persona with only a base PNG still works. Finer lip-sync remains Phase 2.
 
 ### Voices
 
 - Free local TTS only (no paid voice services, no licensing of real VA voices)
 - Match each persona's vibe as closely as possible via voice selection + pitch/speed tweaks (e.g. deep/gravelly for Kratos, lighter/younger for Anya)
 - Accepted tradeoff: not the authentic voice-actor voices, but character-appropriate and free
+- **Status (implemented):** local **Piper** TTS speaks each reply (`server/tts.js`), with a per-persona voice map in `server/config.js` (`tts.voices`) tuning `length_scale`, `noise_scale`/`noise_w`, and `pitch`. Pitch shifting uses optional ffmpeg as a post-pass. Everything fails soft — no `piper.exe`/voices or no ffmpeg just degrades to text or un-shifted audio, never an error. Synthesis is CPU-side so the GPU stays free for Gemma. The client queues and plays clips via `public/voice.js`, which also drives the talking-state avatar swap. See README → "Local TTS — Piper".
+
+### Voice input (STT — implemented)
+
+- The mirror of TTS: a local **faster-whisper** service (`stt-service/`, port 8001, CPU/int8) transcribes microphone audio. The browser records via `MediaRecorder` (`public/mic.js`), uploads to the Node app (`POST /api/transcribe`), which proxies to the Python service through `server/stt.js` — the browser never hits Python directly, mirroring the memory path.
+- UX is a mic toggle with **silence detection** and continuous (always-on) listening: it auto-stops after a silence window, transcribes, submits the turn, and resumes listening when the persona finishes speaking. It coordinates with `voice.js`/`app.js` so it never records while the AI is generating or speaking. Fails soft end-to-end (denied mic, empty/short audio, or a down service just shows a notice; chat is unaffected).
+- This advances the Phase 2 "Voice input / wake word" item (voice input done; wake word still future).
 
 ## Target Hardware (dev + runtime machine)
 
@@ -143,7 +152,7 @@ Eventually each persona could map to a different model tier matching their chara
 
 ## MVP Scope (build in this order)
 
-Steps 1–6 are done; step 7 (local TTS) is the remaining MVP item.
+All seven MVP steps are done — the local chat + shared-memory loop, the desktop widget, and local TTS all ship. Voice input (STT) and animated avatar states, originally Phase 2, also landed early (see below).
 
 1. ✅ Project scaffolding
 2. ✅ Single persona chatting end-to-end through Ollama (text only)
@@ -151,12 +160,12 @@ Steps 1–6 are done; step 7 (local TTS) is the remaining MVP item.
 4. ✅ Shared memory integration (ChromaDB — shared pool + retrieval; see "Memory engine" decision)
 5. ✅ Persona switching
 6. ✅ Desktop avatar rendering — static portraits + minimal idle/talking pulse, in an Electron widget
-7. ⬜ Local TTS per persona
+7. ✅ Local TTS per persona — Piper, per-persona voices + ffmpeg pitch (see "Voices" above)
 
 ## Phase 2 (later)
 
-- Richer avatar animations, talking sync (a basic generate-time pulse already ships)
-- Voice input / wake word
+- Richer avatar animations, talking sync — **partially done:** per-state thinking/talking GIFs and emotion poses ship (see "Avatars" above); finer lip-sync still open
+- Voice input / wake word — **voice input done** (local faster-whisper STT + mic toggle with silence detection; see "Voice input" above); wake word still open
 - Mood tracking across personas
 - Multi-persona group conversations
 - Optional cloud tier — **first slice done:** manual `/deep` → Gemini free tier (see Hybrid cloud strategy above). Still open: a Claude tier, and auto-routing instead of the manual trigger
