@@ -1,8 +1,8 @@
 // My Council — Voice-activation (toggle + silence detection) voice input manager
 // This file executes entirely on the client, managing mic stream recording, AudioContext monitoring, and STT API POST requests.
 
-const SILENCE_TIMEOUT = 7000; // ms to wait after last speech before auto-stopping
-const SPEECH_THRESHOLD = 0.015; // default fallback RMS amplitude threshold for speech detection
+const SILENCE_TIMEOUT = 2500; // ms to wait after last speech before auto-stopping
+const SPEECH_THRESHOLD = 0.012; // default fallback RMS amplitude threshold for speech detection
 
 class MicManager {
   constructor() {
@@ -139,6 +139,9 @@ class MicManager {
       // Initialize Web Audio API components for silence detection
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.audioContext = new AudioContextClass();
+      if (this.audioContext.state === "suspended") {
+        await this.audioContext.resume().catch(() => {});
+      }
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       
@@ -153,8 +156,8 @@ class MicManager {
           const avg = this.calibrationSamples.reduce((a, b) => a + b, 0) / (this.calibrationSamples.length || 1);
           const max = Math.max(...this.calibrationSamples, 0);
           
-          // Calibrate threshold: 2.5x the max ambient noise, clamped between 0.01 and 0.05
-          this.speechThreshold = Math.min(0.05, Math.max(0.01, max * 2.5));
+          // Calibrate threshold: 2.5x the max ambient noise, clamped between 0.01 and 0.04
+          this.speechThreshold = Math.min(0.04, Math.max(0.01, max * 2.5));
           this.isCalibrating = false;
           console.log(`[mic] Calibrated speech threshold to ${this.speechThreshold.toFixed(4)} (ambient avg: ${avg.toFixed(4)}, max: ${max.toFixed(4)})`);
         }
@@ -163,7 +166,7 @@ class MicManager {
       // Start the volume analysis loop
       this.startVolumeLoop();
 
-      this.mediaRecorder.start();
+      this.mediaRecorder.start(200);
       console.log("[mic] Listening started. Calibrating and monitoring silence...");
     } catch (err) {
       console.error("[mic] Microphone access or AudioContext error:", err);
@@ -233,7 +236,7 @@ class MicManager {
     }
 
     // Determine if we should attempt transcription
-    this.shouldTranscribe = this.hasSpeechBeenDetected && !isCancel;
+    this.shouldTranscribe = !isCancel && (this.audioChunks.length > 0 || this.hasSpeechBeenDetected);
 
     // Stop volume loop and clear timers immediately
     if (this.volumeLoopId) {
@@ -335,7 +338,7 @@ class MicManager {
       const audioBlob = new Blob(this.audioChunks, { type: this.mediaRecorder?.mimeType || "audio/webm" });
       
       // Prevent uploading empty or excessively short noise
-      if (audioBlob.size < 1000) {
+      if (audioBlob.size < 100) {
         this.showNotice("Recording too short.");
         this.updateState("idle");
         this.checkResume();

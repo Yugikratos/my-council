@@ -123,18 +123,17 @@ export function buildOllamaMessages(persona, log, memories = []) {
   }
 
   // Inject observed other-character conversations as flat system background context.
-  // Include the other member's reply when one followed, so the active persona is
-  // aware of what was actually said — cross-persona awareness is the whole point.
-  // Format mirrors formatMemories() so in-session and long-term context read alike.
+  // To prevent small-model voice bleed and verbatim plagiarism (mirrors formatMemories),
+  // we do NOT include the other member's verbatim words, which a 4B model will imitate.
+  // We record the user's inquiry and note only that the member responded.
   if (observedHistory.length > 0) {
     const lines = observedHistory.map((obs) => {
-      const base = `- User to ${obs.name}: "${obs.content}"`;
-      return obs.reply ? `${base} — ${obs.name} replied: "${obs.reply}"` : base;
+      return `- User to ${obs.name}: "${obs.content}" (${obs.name} responded)`;
     });
     systemContent +=
       `\n\n---\n[OBSERVED HISTORY - Past exchanges with other Council members in this session. ` +
-      `Treat this ONLY as background context. Do NOT bring it up, repeat it, or reply to it unless the user explicitly asks you about them. ` +
-      `Respond only to the user's latest message addressed to you:]\n` +
+      `Treat this ONLY as background context. NEVER repeat or imitate another member's words. ` +
+      `Always speak strictly in your own distinct persona and voice to the user's latest message addressed to you:]\n` +
       lines.join("\n");
   }
 

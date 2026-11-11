@@ -27,6 +27,16 @@ function activePersona() {
   return personas.find((p) => p.id === activeId);
 }
 
+const PERSONA_PLACEHOLDERS = {
+  kratos: "Speak.",
+  dante: "Say something cool...",
+  vergil: "State your purpose.",
+  jiraiya: "What's on your mind?",
+  naruto: "Let's talk, believe it!",
+  anya: "Tell Anya secret thoughts...",
+  auto: "Address the Council...",
+};
+
 function applyTheme(id) {
   const appEl = document.querySelector(".app");
   if (!appEl) return;
@@ -34,6 +44,9 @@ function applyTheme(id) {
     if (c.startsWith("theme-")) appEl.classList.remove(c);
   });
   appEl.classList.add(`theme-${id}`);
+  if (inputEl) {
+    inputEl.placeholder = PERSONA_PLACEHOLDERS[id] || "Speak.";
+  }
 }
 
 // --- Persona roster (header picker) ---------------------------------------
@@ -91,6 +104,7 @@ function switchPersona(id) {
   
   if (id === "auto") {
     addDivider("The Council (Auto-Route)");
+    if (inputEl) inputEl.placeholder = PERSONA_PLACEHOLDERS.auto;
   } else {
     applyTheme(id);
     const persona = personas.find((p) => p.id === id);
