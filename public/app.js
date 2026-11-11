@@ -21,6 +21,9 @@ let currentAbortController = null;
 const history = [];
 
 function activePersona() {
+  if (activeId === "auto") {
+    return { id: "auto", displayName: "Council" };
+  }
   return personas.find((p) => p.id === activeId);
 }
 
@@ -40,16 +43,18 @@ async function loadPersonas() {
     const res = await fetch("/api/personas");
     const data = await res.json();
     personas = data.personas;
-    activeId = data.default ?? personas[0]?.id;
+    // Default to "auto" (Council) mode for intelligent multi-agent routing
+    activeId = "auto";
     renderRoster();
     
     // Set initial theme class on the app container
-    if (activeId) {
-      applyTheme(activeId);
+    const defaultPersona = data.default ?? personas[0]?.id;
+    if (defaultPersona) {
+      applyTheme(defaultPersona);
     }
     
-    if (window.avatarManager && activeId) {
-      window.avatarManager.switchPersona(activeId);
+    if (window.avatarManager && defaultPersona) {
+      window.avatarManager.switchPersona(defaultPersona);
     }
   } catch {
     // If this fails the server is down; the first send will surface the error.
@@ -58,6 +63,16 @@ async function loadPersonas() {
 
 function renderRoster() {
   rosterEl.innerHTML = "";
+
+  // Council (Auto-Route) option
+  const autoBtn = document.createElement("button");
+  autoBtn.type = "button";
+  autoBtn.className = "persona-btn" + (activeId === "auto" ? " active" : "");
+  autoBtn.textContent = "⚡ Council";
+  autoBtn.setAttribute("aria-pressed", String(activeId === "auto"));
+  autoBtn.addEventListener("click", () => switchPersona("auto"));
+  rosterEl.appendChild(autoBtn);
+
   for (const p of personas) {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -74,14 +89,15 @@ function switchPersona(id) {
   activeId = id;
   renderRoster();
   
-  // Set theme class on the app container
-  applyTheme(id);
-  
-  // One continuous session: keep the transcript, just mark who's taking over.
-  addDivider(activePersona().displayName);
-  
-  if (window.avatarManager) {
-    window.avatarManager.switchPersona(id);
+  if (id === "auto") {
+    addDivider("The Council (Auto-Route)");
+  } else {
+    applyTheme(id);
+    const persona = personas.find((p) => p.id === id);
+    if (persona) addDivider(persona.displayName);
+    if (window.avatarManager) {
+      window.avatarManager.switchPersona(id);
+    }
   }
   
   inputEl.focus();
@@ -237,6 +253,7 @@ formEl.addEventListener("submit", async (e) => {
 
   let reply = "";
   let errored = false;
+  let currentSpeakerId = persona.id;
 
   try {
     const res = await fetch("/api/chat", {
@@ -251,7 +268,16 @@ formEl.addEventListener("submit", async (e) => {
     }
 
     await readStream(res, (event) => {
-      if (event.type === "token") {
+      if (event.type === "route") {
+        currentSpeakerId = event.personaId;
+        const whoEl = replyBody.parentElement.querySelector(".who");
+        if (whoEl) whoEl.textContent = event.displayName;
+        applyTheme(event.personaId);
+        if (window.avatarManager) {
+          window.avatarManager.switchPersona(event.personaId);
+          window.avatarManager.setTalking(true, isDeep);
+        }
+      } else if (event.type === "token") {
         reply += event.value;
         replyBody.textContent = reply;
         scrollToBottom();
@@ -293,7 +319,7 @@ formEl.addEventListener("submit", async (e) => {
 
     if (reply) {
       // Record who said it so later personas see it attributed by name.
-      history.push({ role: "assistant", content: reply, persona: persona.id });
+      history.push({ role: "assistant", content: reply, persona: currentSpeakerId });
     } else if (!errored) {
       // Nothing came back and no error reported — drop the empty bubble.
       replyBody.parentElement.remove();

@@ -40,14 +40,18 @@ function isGreeting(query) {
 }
 
 /**
- * Retrieve the most relevant past exchanges for `query`.
+ * Retrieve the most relevant past exchanges for `query` filtered by persona RBAC.
+ * @param {string} query
+ * @param {string|null} [personaId] the active persona requesting access
  * @returns {Promise<{ok: boolean, memories: Array}>}
  *   ok=false means the memory service was unreachable (caller should notify UI).
  */
-export async function retrieve(query) {
+export async function retrieve(query, personaId = null) {
   if (!enabled || !query || isGreeting(query)) return { ok: true, memories: [] };
   try {
-    const data = await postJson("/retrieve", { query });
+    const payload = { query };
+    if (personaId) payload.requester_persona = personaId;
+    const data = await postJson("/retrieve", payload);
     const rawMemories = data.memories ?? [];
     // Only keep memories that are semantically close (distance <= 0.7)
     const filteredMemories = rawMemories.filter(m => m.distance !== undefined && m.distance <= 0.7);
@@ -59,11 +63,29 @@ export async function retrieve(query) {
 }
 
 /**
- * Persist one exchange verbatim, tagged with persona id + name (timestamp is
- * set service-side). Fails soft.
+ * Persist one exchange, tagged with persona id + name + RBAC metadata.
+ * Fails soft.
+ * @param {object} params
+ * @param {string} params.personaId
+ * @param {string} params.personaName
+ * @param {string} params.userMessage
+ * @param {string} params.reply
+ * @param {"private"|"public"} [params.visibility] default "private" for 1-on-1 mode
+ * @param {string} [params.target] default to personaId
+ * @param {string} [params.source] default "user"
+ * @param {string} [params.memoryType] default "raw_turn"
  * @returns {Promise<boolean>} true if stored.
  */
-export async function store({ personaId, personaName, userMessage, reply }) {
+export async function store({
+  personaId,
+  personaName,
+  userMessage,
+  reply,
+  visibility = "private",
+  target = null,
+  source = "user",
+  memoryType = "raw_turn",
+}) {
   if (!enabled) return false;
   try {
     const data = await postJson("/store", {
@@ -71,6 +93,10 @@ export async function store({ personaId, personaName, userMessage, reply }) {
       persona_name: personaName,
       user_message: userMessage,
       reply,
+      visibility,
+      target: target || personaId,
+      source,
+      memory_type: memoryType,
     });
     // The service may decline to persist a low-value exchange (greeting,
     // non-answer); that's a success, not an error — just note it.

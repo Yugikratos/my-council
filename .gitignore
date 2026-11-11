@@ -15,8 +15,9 @@ npm-debug.log*
 __pycache__/
 *.pyc
 
-# Local memory data (ChromaDB) — never commit conversation memory
+# Local memory data (ChromaDB) — never commit conversation memory or raw archives
 memory-service/chroma-data/
+*.jsonl
 
 # Vendored Piper TTS — binary + voice models are large and machine-specific, so
 # each clone vendors its own (public repo). The folder structure stays tracked

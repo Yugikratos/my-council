@@ -15,10 +15,13 @@ import { openCloudStream } from "./cloud.js";
 import { getPersona, listPersonas, DEFAULT_PERSONA_ID } from "./personas/index.js";
 import { buildOllamaMessages } from "./context.js";
 import { createReplyFilter } from "./reply-filter.js";
-import { splitSentences } from "./text.js";
-import { synthesize, registerAudio, getAudioPath, prewarm } from "./tts.js";
+import { SentenceStreamer } from "./sentence-streamer.js";
+import { createTtsPipeline } from "./tts-pipeline.js";
+import { getAudioPath, prewarm } from "./tts.js";
 import { transcribe } from "./stt.js";
 import { retrieve, store } from "./memory.js";
+import { routeTurn } from "./router.js";
+import { idleDetector } from "./idle-detector.js";
 
 // A turn routes to the optional cloud tier only when prefixed with "/deep".
 // Kept here as the single, obvious routing rule.
@@ -69,6 +72,7 @@ app.get("/api/tts", (req, res) => {
 // ignores non-JSON bodies), and stt.js forwards it with the original Content-Type
 // so the boundary survives. No multipart parsing — and no new npm dependency.
 app.post("/api/transcribe", express.raw({ type: "*/*", limit: "25mb" }), async (req, res) => {
+  idleDetector.recordActivity();
   const { ok, text, error } = await transcribe(req.body, req.headers["content-type"]);
   if (!ok) return res.status(503).json({ error: error ?? "Speech-to-text is unavailable." });
   res.json({ text });
@@ -78,28 +82,19 @@ app.post("/api/transcribe", express.raw({ type: "*/*", limit: "25mb" }), async (
 // Request body: { personaId?: string, messages: [{ role, content }, ...] }
 // Response: Server-Sent Events, one JSON payload per `data:` frame:
 //   { type: "token", value: "..." }  — a piece of the reply
+//   { type: "route", personaId, displayName, method, confidence } — routed persona event
 //   { type: "done", source }         — the reply is complete (source: local|cloud)
 //   { type: "notice", message }      — non-fatal info (e.g. memory unavailable)
 //   { type: "error", message: "..." }— something went wrong
 //   { type: "audio", utteranceId, seq, url, last } — OPTIONAL spoken audio
-//       Emitted AFTER "done", one per sentence, only when TTS is enabled and
-//       synthesis succeeds. The token text contract is unchanged: text streams
-//       and completes exactly as before, so a client that ignores "audio" (the
-//       current frontend does) behaves identically. Shape:
-//         utteranceId — id grouping this reply's sentences (one per reply)
-//         seq         — 0-based sentence index; play in ascending order
-//         url         — GET it for the WAV bytes: /api/tts?id=<id>&seq=<seq>
-//         last        — true on the final sentence of the reply
-//       Per-sentence so the first can play while later ones still synthesize.
-//
-// Memory is layered BENEATH the chat loop: we retrieve relevant long-term
-// memories before building the prompt, and store the exchange after replying.
-// Both fail soft — if the memory service is down, chat still works in-session.
 app.post("/api/chat", async (req, res) => {
-  const { personaId = DEFAULT_PERSONA_ID, messages } = req.body ?? {};
+  await idleDetector.preempt();
 
-  const persona = getPersona(personaId);
-  if (!persona) {
+  const { personaId = "auto", messages } = req.body ?? {};
+
+  const isAutoRoute = personaId === "auto" || !personaId;
+  let persona = !isAutoRoute ? getPersona(personaId) : null;
+  if (!isAutoRoute && !persona) {
     return res.status(400).json({ error: `Unknown persona: ${personaId}` });
   }
   if (!Array.isArray(messages)) {
@@ -110,14 +105,18 @@ app.post("/api/chat", async (req, res) => {
   const latestUser = [...messages].reverse().find((m) => m.role === "user");
   const rawLatest = latestUser?.content ?? "";
 
-  // --- Routing decision (the ONE place it's made) ---------------------------
-  // "/deep ..." routes this turn to the cloud tier (Gemini); everything else
-  // stays on local Gemma. Strip the marker so the persona never sees it, and use
-  // the cleaned text everywhere downstream (prompt, retrieval, storage). The
-  // persona, context, grounding, and memory are identical either way — only the
-  // model behind the reply changes.
+  // --- Routing decision -----------------------------------------------------
   const routeToCloud = DEEP_MARKER.test(rawLatest.trimStart());
   const query = routeToCloud ? rawLatest.trimStart().replace(DEEP_MARKER, "") : rawLatest;
+
+  // In Auto / Council mode, route to the best persona using our 3-tier router
+  let routeDecision = null;
+  if (isAutoRoute) {
+    const lastAssistantTurn = [...messages].reverse().find((m) => m.role === "assistant");
+    const currentSpeaker = lastAssistantTurn?.persona || DEFAULT_PERSONA_ID;
+    routeDecision = await routeTurn({ query, currentPersonaId: currentSpeaker });
+    persona = getPersona(routeDecision.personaId) || getPersona(DEFAULT_PERSONA_ID);
+  }
 
   // If a marker was stripped, rebuild the message list with the cleaned latest
   // user turn so context.js and the model get the real question, not "/deep ...".
@@ -126,8 +125,8 @@ app.post("/api/chat", async (req, res) => {
       ? messages.map((m) => (m === latestUser ? { ...m, content: query } : m))
       : messages;
 
-  // Retrieve relevant memories from earlier sessions (fails soft).
-  const { ok: memoryOk, memories } = await retrieve(query);
+  // Retrieve relevant memories from earlier sessions with RBAC filtering (fails soft).
+  const { ok: memoryOk, memories } = await retrieve(query, persona.id);
 
   // Build the message list: the persona's character sheet, retrieved long-term
   // memories as attributed context, then the in-session conversation (with other
@@ -141,6 +140,16 @@ app.post("/api/chat", async (req, res) => {
   res.flushHeaders?.();
 
   const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
+
+  if (isAutoRoute && routeDecision) {
+    send({
+      type: "route",
+      personaId: persona.id,
+      displayName: persona.displayName,
+      method: routeDecision.method,
+      confidence: routeDecision.confidence,
+    });
+  }
 
   // Let the user know if long-term memory couldn't be reached this turn.
   if (!memoryOk) {
@@ -165,14 +174,64 @@ app.post("/api/chat", async (req, res) => {
   // emits only the new clean suffix, so the UI keeps streaming. See reply-filter.js.
   let filter = createReplyFilter({ displayName: persona.displayName });
 
+  // Utterance grouping ID for spoken audio chunks
+  const utteranceId = randomUUID();
+  let sentenceStreamer = null;
+  let ttsPipeline = null;
+
+  function initStreamingTts() {
+    if (config.tts.enabled) {
+      if (ttsPipeline) ttsPipeline.cancel();
+      ttsPipeline = createTtsPipeline({
+        personaId: persona.id,
+        utteranceId,
+        onAudioReady: (event) => send(event),
+      });
+      sentenceStreamer = new SentenceStreamer({ minChars: 20 });
+    }
+  }
+
+  initStreamingTts();
+
+  // If the client disconnects or aborts early, cancel the background TTS pipeline
+  // to avoid consuming CPU cycles on unsent audio.
+  req.on("close", () => {
+    if (ttsPipeline) ttsPipeline.cancel();
+  });
+
   const pushToken = (token) => {
     const add = filter.push(token);
-    if (add) send({ type: "token", value: add });
+    if (add) {
+      send({ type: "token", value: add });
+      if (sentenceStreamer && ttsPipeline) {
+        const sentences = sentenceStreamer.push(add);
+        for (const s of sentences) {
+          ttsPipeline.enqueue(s, false);
+        }
+      }
+    }
   };
+
   // Flush any held tail once a stream ends (closes off the cleaned reply).
   const flushReply = () => {
     const tail = filter.flush();
-    if (tail) send({ type: "token", value: tail });
+    if (tail) {
+      send({ type: "token", value: tail });
+      if (sentenceStreamer && ttsPipeline) {
+        const sentences = sentenceStreamer.push(tail);
+        for (const s of sentences) {
+          ttsPipeline.enqueue(s, false);
+        }
+      }
+    }
+    if (sentenceStreamer && ttsPipeline) {
+      const remaining = sentenceStreamer.flush();
+      for (let i = 0; i < remaining.length; i++) {
+        const isLast = i === remaining.length - 1;
+        ttsPipeline.enqueue(remaining[i], isLast);
+      }
+      ttsPipeline.finish();
+    }
   };
 
   try {
@@ -193,8 +252,9 @@ app.post("/api/chat", async (req, res) => {
           message: "Deep mode (cloud) was unavailable — answered with the local model instead.",
         });
         source = "local";
-        // Fresh filter so the local attempt starts from a clean slate.
+        // Fresh filter and streaming pipeline so the local attempt starts from a clean slate.
         filter = createReplyFilter({ displayName: persona.displayName });
+        initStreamingTts();
         for await (const token of streamChat(fullMessages)) pushToken(token);
         flushReply();
       }
@@ -205,29 +265,10 @@ app.post("/api/chat", async (req, res) => {
     completed = true;
     send({ type: "done", source });
 
-    // --- Optional spoken audio --------------------------------------------
-    // After the text reply is fully done, synthesize it per sentence and emit
-    // an "audio" event per WAV. This is strictly additive: the token stream and
-    // "done" already fired with unchanged timing, so a client ignoring "audio"
-    // is unaffected. Best-effort — synthesize() fails soft (returns null) and
-    // the whole block is wrapped so TTS can NEVER break a delivered reply. We
-    // keep the connection open through synthesis (res.end() is in finally).
-    if (config.tts.enabled) {
+    // Await completion of in-flight TTS synthesis before closing connection
+    if (ttsPipeline) {
       try {
-        const sentences = splitSentences(filter.text());
-        const utteranceId = randomUUID();
-        for (let seq = 0; seq < sentences.length; seq++) {
-          const wav = await synthesize(sentences[seq], persona.id);
-          if (!wav) break; // missing piper/model — stop trying this turn
-          registerAudio(utteranceId, seq, wav);
-          send({
-            type: "audio",
-            utteranceId,
-            seq,
-            url: `/api/tts?id=${utteranceId}&seq=${seq}`,
-            last: seq === sentences.length - 1,
-          });
-        }
+        await ttsPipeline.drain();
       } catch {
         /* never let audio synthesis affect the already-delivered reply */
       }
@@ -254,10 +295,9 @@ app.post("/api/chat", async (req, res) => {
     res.end();
   }
 
-  // Persist the completed exchange verbatim, tagged with the active persona
+  // Persist the completed exchange verbatim, tagged with active persona & RBAC metadata
   // (fails soft; happens after the response is already sent to the client).
-  // Store the SANITIZED reply — the same text the user saw and that TTS will
-  // speak — so memory stays consistent with what was actually said.
+  // In 1-on-1 mode, visibility is strictly "private" to active persona to prevent telepathy.
   const finalReply = filter.text();
   if (completed && query && finalReply) {
     await store({
@@ -265,6 +305,10 @@ app.post("/api/chat", async (req, res) => {
       personaName: persona.displayName,
       userMessage: query,
       reply: finalReply,
+      visibility: isAutoRoute ? "public" : "private",
+      target: persona.id,
+      source: "user",
+      memoryType: "raw_turn",
     });
   }
 });
@@ -281,11 +325,9 @@ app.listen(config.port, "127.0.0.1", () => {
   );
   console.log("  Press Ctrl+C to stop.\n");
 
-  // Warm ONE voice in the BACKGROUND after the port is open. The active persona
-  // is chosen client-side and unknown here, so we warm the default (Kratos);
-  // every other voice warms naturally on its first real synthesis. Not awaited
-  // → never delays the server accepting requests. Fail-soft inside prewarm().
-  // Warming a single voice (not all six) avoids D: drive + CPU contention while
-  // Ollama is loading Gemma into VRAM at the same moment.
+  // Start background sleep cycle idle monitor
+  idleDetector.start();
+
+  // Warm ONE voice in the BACKGROUND after the port is open.
   prewarm(DEFAULT_PERSONA_ID);
 });

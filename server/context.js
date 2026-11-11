@@ -30,8 +30,11 @@ import { getPersona } from "./personas/index.js";
  */
 function formatMemories(persona, memories) {
   const lines = memories.map((m) => {
+    if (m.memory_type === "consolidated_fact") {
+      return `- Known Fact: ${m.user_message || m.reply}`;
+    }
     const name = m.persona_name || m.persona_id || "another member";
-    if (m.persona_id === persona.id) {
+    if (m.target === persona.id || m.persona_id === persona.id) {
       // The active persona's OWN past words — safe to keep verbatim.
       return `- User to you: "${m.user_message}" — you replied: "${m.reply}"`;
     }

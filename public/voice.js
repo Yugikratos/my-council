@@ -62,8 +62,13 @@ class VoiceManager {
       this.activeUtteranceId = utteranceId;
     }
 
-    // Add segment to queue if we haven't seen it yet
-    if (!this.queue.some((item) => item.seq === seq)) {
+    // Add segment to queue if we haven't seen it yet, or update last flag
+    const existing = this.queue.find((item) => item.seq === seq);
+    if (existing) {
+      if (last) {
+        existing.last = true;
+      }
+    } else {
       this.queue.push({ seq, url, last });
       // Keep queue sorted by sequence index
       this.queue.sort((a, b) => a.seq - b.seq);

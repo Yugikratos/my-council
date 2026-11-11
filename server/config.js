@@ -40,6 +40,8 @@ export const config = {
     url: process.env.MEMORY_URL || "http://127.0.0.1:8000",
     // Master switch. Set MEMORY_ENABLED=false to run pure in-session chat.
     enabled: process.env.MEMORY_ENABLED !== "false",
+    // Inactivity duration before background Sleep Cycle ETL triggers (default 5 minutes)
+    idleConsolidationMs: Number(process.env.IDLE_CONSOLIDATION_MS) || 5 * 60 * 1000,
   },
 
   // Optional hybrid cloud tier (Google Gemini, free tier). Local Gemma stays the

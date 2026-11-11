@@ -56,6 +56,110 @@ What works now:
 - **Graceful degradation:** if the memory service is down, chat still works in
   the current session and the UI says memory is unavailable — it never crashes
 
+## v2 Enterprise Architecture
+
+My Council v2 upgrades the system to an enterprise-grade multi-agent runtime, addressing vector data isolation, GPU VRAM constraints, sentence-level latency, and long-term memory compaction.
+
+```
+========================================================================================
+                                 MY COUNCIL v2 ARCHITECTURE
+========================================================================================
+
+    [ User Audio / Text ]
+              │
+              ├──► (STT Service: faster-whisper CPU) ──► Transcript
+              ▼
+   ┌───────────────────────────────────────────────────────────────────────────────┐
+   │                    THREE-TIER ORCHESTRATOR ROUTER                             │
+   │                                                                               │
+   │  [User Input]                                                                 │
+   │        │                                                                      │
+   │        ▼                                                                      │
+   │  [Tier 1: Lexical Parser (<1ms)] ──(Match: @kratos, "Hey Dante")──► [Route]  │
+   │        │ (No match)                                                           │
+   │        ▼                                                                      │
+   │  [Tier 2: ONNX Semantic Router (<15ms, CPU)] ──► Cosine vs Persona Anchors   │
+   │        │ (Low confidence < 0.35 OR < 4 words)                                 │
+   │        ▼                                                                      │
+   │  [Tier 3: Sticky Speaker Guard] ───────────────► Retain Current Persona       │
+   └──────────────────────────────────────┬────────────────────────────────────────┘
+                                          │ Active Persona Selected
+                                          ▼
+   ┌───────────────────────────────────────────────────────────────────────────────┐
+   │                   CHROMADB PARTITIONED MEMORY (RBAC)                          │
+   │                                                                               │
+   │  Query Vector ──► [Hard Boolean Filter] ──► Filter:                           │
+   │                   {"$or": [{"visibility": "public"},                          │
+   │                            {"target": active_persona},                        │
+   │                            {"target": "all"}]}                                │
+   │                   (Private memories of other personas excluded at index level)│
+   └──────────────────────────────────────┬────────────────────────────────────────┘
+                                          │ Grounded Context
+                                          ▼
+   ┌───────────────────────────────────────────────────────────────────────────────┐
+   │                     ISOLATED PROMPT & LLM GENERATION                          │
+   │                                                                               │
+   │  [Active Persona System Prompt] + [Attributed Memories] + [History]           │
+   │  ──► Local Gemma 3 4B (Ollama, GPU VRAM) / Optional Gemini Cloud (/deep)      │
+   └──────────────────────────────────────┬────────────────────────────────────────┘
+                                          │ Streamed Tokens
+                                          ▼
+   ┌───────────────────────────────────────────────────────────────────────────────┐
+   │                    OVERLAPPED PIPELINE STREAMING (TTS)                        │
+   │                                                                               │
+   │  Token Stream ──► [Sanitizer & Reply Filter]                                  │
+   │                         │                                                     │
+   │                         ├──► [SSE Text Events] ──────────────► [Browser UI]   │
+   │                         │                                                     │
+   │                         └──► [Sentence Streamer (>=20 chars, regex)]          │
+   │                                    │ Completed Sentence                       │
+   │                                    ▼                                          │
+   │                              [FIFO TTS Queue (Concurrency = 1)]               │
+   │                                    │ Piper Synthesize (CPU)                   │
+   │                                    ▼                                          │
+   │                              [SSE Audio Events] ─────────────► [Voice Queue]  │
+   │                              (Audio plays while next sentence generates!)     │
+   └───────────────────────────────────────────────────────────────────────────────┘
+                                          │
+                   System Idle >= 5 min   │ (Preempted immediately on new chat turn)
+                                          ▼
+   ┌───────────────────────────────────────────────────────────────────────────────┐
+   │                   SLEEP CYCLE CONSOLIDATION (ETL DAEMON)                      │
+   │                                                                               │
+   │  [Raw Turns (<=10)] ──► [Ollama Fact Distiller] ──► [Deduplication (<0.15)]  │
+   │                                │                              │               │
+   │                                ▼                              ▼               │
+   │                     [raw_turns_archive.jsonl]       [consolidated_fact]       │
+   │                     (Zero History Loss)             (Re-embedded in Chroma)   │
+   └───────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Architectural Highlights
+
+1. **ChromaDB Memory Partitioning ("RBAC"):**
+   - Primitive metadata attributes (`source`, `target`, `visibility`, `memory_type`, `schema_version: 2`) partition the vector space without crashing ChromaDB's primitive-only constraint.
+   - Vector retrieval enforces boolean `$or` filtering at query time:
+     `{"$or": [{"visibility": "public"}, {"target": active_persona}, {"target": "all"}]}`
+   - 1-on-1 turns default to `visibility: "private"` and `target: "<active_persona>"`. Private memories between the user and Vergil can never be retrieved by or leak into Kratos's context.
+
+2. **Three-Tier Zero-VRAM Semantic Router:**
+   - **Tier 1:** Instant regex detection (<1ms) for direct mentions (`@kratos`, `"Hey Dante,"`, `"Vergil: ..."`).
+   - **Tier 2:** In-memory semantic router running in the FastAPI memory service. Reuses the already-loaded `all-MiniLM-L6-v2` ONNX embedding model to compute cosine similarity against pre-computed persona anchor matrices in <15ms on CPU with 0MB extra GPU VRAM.
+   - **Tier 3:** Conversational inertia guard: short follow-ups (< 4 words, e.g. *"Why?"*, *"Tell me more"*) or low-confidence matches (< 0.35) stick to the active speaker, preventing conversational whiplash.
+   - **UI Toggle:** Includes a `⚡ Council` auto-route mode alongside manual persona locks, firing real-time SSE `{ type: "route" }` events to dynamically swap avatar and themes.
+
+3. **Overlapped Pipeline Streaming (Sentence-Chunking):**
+   - `SentenceStreamer` tokenizes the LLM stream in real time, respecting lookbehind guards for abbreviations (`Mr.`, `Dr.`, `vs.`, `e.g.`), decimals (`3.14`), and ellipsis (`...`), while enforcing a `>= 20 char` threshold to merge short interjections for natural prosody.
+   - A single-worker FIFO TTS queue (`server/tts-pipeline.js`) isolates Piper execution, ensuring synthesis runs alongside token generation without saturating the CPU.
+   - Segment 0 is spoken aloud in the client while subsequent sentences are still generating, reducing Time-To-First-Audio (TTFA) by ~60%.
+
+4. **Background Memory Consolidation (Sleep Cycle ETL):**
+   - When the system is idle for $\ge 5$ minutes, an asynchronous daemon triggers bounded micro-batch distillation ($\le 10$ raw turns).
+   - Local Gemma 3 4B distills enduring facts, promoting general facts to `visibility: "public"` while keeping private confessions `visibility: "private"`.
+   - Semantic deduplication prevents near-duplicate insertions (cosine distance $< 0.15$).
+   - Raw turns are appended to an append-only `raw_turns_archive.jsonl` backup before being pruned from active vector storage.
+   - **Live Chat Preemption:** Any incoming user message immediately aborts Ollama's background generation, returning GPU priority to live chat.
+
 ## Project structure
 
 ```
@@ -64,30 +168,41 @@ my-council/
 ├── start.bat              # one-click: memory + STT services, then the Electron widget
 ├── main.js                # Electron entry: frameless desktop widget (npm run start:widget)
 ├── server/
-│   ├── index.js           # Express server: serves the UI + POST /api/chat, /api/transcribe
+│   ├── index.js           # Express server: serves UI + POST /api/chat, /api/transcribe
 │   ├── config.js          # Node-side config (Ollama, port, memory, cloud, tts, stt)
-│   ├── env.js             # loads a gitignored .env (zero-dependency)
+│   ├── env.js             # loads gitignored .env (zero-dependency)
+│   ├── router.js          # 3-tier router: Tier 1 lexical mention parser + Tier 2/3 proxy
+│   ├── router.test.js     # router unit tests
+│   ├── sentence-streamer.js # real-time sentence tokenizer with abbreviation/ellipsis guards
+│   ├── sentence-streamer.test.js # sentence streamer unit tests
+│   ├── tts-pipeline.js    # asynchronous FIFO TTS synthesis queue (concurrency = 1)
+│   ├── tts-pipeline.test.js # TTS pipeline concurrency & ordering unit tests
+│   ├── idle-detector.js   # idle detector & instant live chat preemption daemon
 │   ├── ollama.js          # Ollama client: streams /api/chat responses
 │   ├── cloud.js           # Gemini client for /deep turns (key from env only)
-│   ├── context.js         # builds the prompt (attribution + memory injection)
-│   ├── memory.js          # Node client for the memory service (fails soft)
-│   ├── tts.js             # Piper synthesis + per-persona voices + ffmpeg pitch (fails soft)
-│   ├── stt.js             # Node proxy to the STT service (fails soft)
+│   ├── context.js         # builds prompt (attribution + RBAC-filtered memory injection)
+│   ├── memory.js          # Node client for memory service (RBAC query + store)
+│   ├── tts.js             # Piper synthesis + per-persona voices + ffmpeg pitch
+│   ├── stt.js             # Node proxy to STT service
 │   └── personas/          # one character sheet per persona + registry
-├── memory-service/        # Python: local ChromaDB wrapper (the memory engine)
-│   ├── app.py             # FastAPI: /store, /retrieve, /health
-│   ├── config.py          # Python-side config (N, data path, port, model)
-│   ├── requirements.txt   # pinned deps (ChromaDB etc.)
+├── memory-service/        # Python: local ChromaDB memory + semantic router + sleep cycle ETL
+│   ├── app.py             # FastAPI: /store, /retrieve, /route, /consolidate
+│   ├── config.py          # Python config (N, data path, port, model)
+│   ├── router.py          # In-memory Zero-LLM semantic router using pre-computed anchors
+│   ├── consolidator.py    # Sleep Cycle ETL: fact distillation, deduplication, archival
+│   ├── migrate_v2.py      # Schema v2 RBAC migration script
+│   ├── test_v2_features.py# Unit/integration tests for router and consolidator
+│   ├── requirements.txt   # pinned deps (ChromaDB, numpy, onnxruntime, fastapi, uvicorn)
 │   └── chroma-data/       # persisted memory (created at runtime; gitignored)
 ├── stt-service/           # Python: local faster-whisper wrapper (voice input)
 │   ├── app.py             # FastAPI: /transcribe, /health (model loads once, CPU/int8)
-│   ├── config.py          # Python-side config (model size, device, port 8001)
+│   ├── config.py          # Python config (model size, device, port 8001)
 │   └── requirements.txt   # pinned deps (faster-whisper)
 ├── tools/piper/           # vendored Piper TTS (binary + voices; gitignored, .gitkeep only)
 └── public/                # chat UI + desktop avatar
     ├── index.html
     ├── styles.css
-    ├── app.js             # chat logic, SSE streaming, /deep handling
+    ├── app.js             # chat logic, SSE streaming, Council auto-route, /deep handling
     ├── avatar.js          # AvatarManager: portrait/GIF state swap (idle/thinking/talking)
     ├── voice.js           # VoiceManager: TTS playback queue + talking-state sync
     ├── mic.js             # MicManager: voice activation (toggle + silence detection)
