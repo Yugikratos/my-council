@@ -38,5 +38,11 @@ start "My Council - STT Service" /D "%~dp0stt-service" /min "%STT_PYTHON%" app.p
 
 :: Start Electron widget asynchronously and exit CMD window immediately
 echo [+] Launching Desktop Widget (Electron)...
-start "" "node_modules\.bin\electron" .
+if exist "node_modules\electron\dist\electron.exe" (
+    start "" "node_modules\electron\dist\electron.exe" .
+) else if exist "node_modules\.bin\electron.cmd" (
+    start "" "node_modules\.bin\electron.cmd" .
+) else (
+    start "" npm run start:widget
+)
 exit

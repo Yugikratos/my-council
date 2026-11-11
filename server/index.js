@@ -275,7 +275,12 @@ app.post("/api/chat", async (req, res) => {
     }
   } catch (err) {
     console.error("[api/chat] Error during generation:", err);
-    if (err instanceof OllamaUnavailableError) {
+    const msg = err?.message || String(err);
+    if (
+      err instanceof OllamaUnavailableError ||
+      err?.name === "OllamaUnavailableError" ||
+      msg.includes("Could not reach Ollama")
+    ) {
       send({
         type: "error",
         message:
@@ -283,12 +288,17 @@ app.post("/api/chat", async (req, res) => {
           "or run `ollama serve` in another terminal) and that the model is " +
           "pulled (`ollama pull gemma3:4b`), then try again.",
       });
-    } else {
-      // Generic on purpose — never surface a raw upstream error (defends against
-      // any chance of leaking sensitive request detail).
+    } else if (msg.includes("Ollama returned")) {
       send({
         type: "error",
-        message: "Something went wrong generating the reply. Please try again.",
+        message:
+          `Ollama error (${msg}). If Gemma 3 was cold-loading into GPU VRAM, ` +
+          "please wait a moment and send your message again.",
+      });
+    } else {
+      send({
+        type: "error",
+        message: `Something went wrong generating the reply (${msg}). Please try again.`,
       });
     }
   } finally {
