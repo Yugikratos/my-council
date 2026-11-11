@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 
 import { config } from "./config.js";
-import { streamChat, OllamaUnavailableError } from "./ollama.js";
+import { streamChat, prewarmOllama, OllamaUnavailableError } from "./ollama.js";
 import { openCloudStream } from "./cloud.js";
 import { getPersona, listPersonas, DEFAULT_PERSONA_ID } from "./personas/index.js";
 import { buildOllamaMessages } from "./context.js";
@@ -340,4 +340,7 @@ app.listen(config.port, "127.0.0.1", () => {
 
   // Warm ONE voice in the BACKGROUND after the port is open.
   prewarm(DEFAULT_PERSONA_ID);
+
+  // Pre-warm and pin Gemma 3 in GPU VRAM in the BACKGROUND (non-blocking).
+  prewarmOllama();
 });

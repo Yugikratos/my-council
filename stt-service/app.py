@@ -23,12 +23,19 @@ import config
 
 # --- Model (loaded once at startup, reused for every request) ---------------
 
+# Hardware constraint guard: STT must stay strictly on CPU with int8 quantization
+# to prevent any VRAM allocation on the GTX 1650 (reserved entirely for Gemma 3 4B).
+device_to_use = "cpu"
+compute_type_to_use = "int8"
+if config.DEVICE != "cpu" or config.COMPUTE_TYPE != "int8":
+    print(f"[stt] Enforcing hardware safety: overriding device={config.DEVICE} to 'cpu' and compute_type={config.COMPUTE_TYPE} to 'int8'")
+
 print(
     f"Loading faster-whisper model '{config.MODEL_SIZE}' "
-    f"(device={config.DEVICE}, compute={config.COMPUTE_TYPE})... "
+    f"(device={device_to_use}, compute={compute_type_to_use})... "
     "first run downloads it (~145MB for 'base')."
 )
-model = WhisperModel(config.MODEL_SIZE, device=config.DEVICE, compute_type=config.COMPUTE_TYPE)
+model = WhisperModel(config.MODEL_SIZE, device=device_to_use, compute_type=compute_type_to_use)
 print("Model loaded.")
 
 app = FastAPI(title="My Council STT")
@@ -39,8 +46,8 @@ def health():
     return {
         "ok": True,
         "model": config.MODEL_SIZE,
-        "device": config.DEVICE,
-        "compute_type": config.COMPUTE_TYPE,
+        "device": device_to_use,
+        "compute_type": compute_type_to_use,
     }
 
 

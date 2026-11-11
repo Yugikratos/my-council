@@ -4,11 +4,37 @@
 
 import { config } from "./config.js";
 
-const { baseUrl, model, options } = config.ollama;
+const { baseUrl, model, options, keepAlive } = config.ollama;
 
 // Thrown when we can't reach Ollama at all (e.g. it isn't running). The server
 // catches this specifically to show a friendly "start Ollama" message.
 export class OllamaUnavailableError extends Error {}
+
+/**
+ * Pre-warm and pin the configured model into Ollama VRAM in the background.
+ * Non-blocking, fails soft if Ollama is unreachable.
+ */
+export async function prewarmOllama() {
+  try {
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt: "",
+        keep_alive: keepAlive,
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (response.ok) {
+      console.log(`[ollama] Model "${model}" pre-warmed and pinned in VRAM (keep_alive: ${keepAlive}).`);
+    } else {
+      console.warn(`[ollama] Pre-warm returned status ${response.status}`);
+    }
+  } catch (err) {
+    console.warn(`[ollama] Pre-warm skipped (${err.message})`);
+  }
+}
 
 /**
  * Stream a chat completion from the local Ollama server.
@@ -23,9 +49,19 @@ export async function* streamChat(messages) {
     response = await fetch(`${baseUrl}/api/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, messages, stream: true, options }),
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: true,
+        keep_alive: keepAlive,
+        options,
+      }),
+      signal: AbortSignal.timeout(90_000),
     });
   } catch (err) {
+    if (err.name === "TimeoutError") {
+      throw new Error(`Ollama timed out waiting for model "${model}" to load into VRAM after 90s.`);
+    }
     // fetch rejects (ECONNREFUSED) when nothing is listening on the port.
     throw new OllamaUnavailableError(`Could not reach Ollama at ${baseUrl}`);
   }

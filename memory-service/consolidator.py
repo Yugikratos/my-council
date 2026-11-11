@@ -59,6 +59,7 @@ def call_ollama_distill(
         ],
         "format": "json",
         "stream": True,
+        "keep_alive": "60m",
         "options": {
             "num_ctx": 4096,
             "temperature": 0.2

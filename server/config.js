@@ -24,6 +24,9 @@ export const config = {
     // The model must already be pulled in Ollama (`ollama pull gemma3:4b`).
     model: process.env.OLLAMA_MODEL || "gemma3:4b",
 
+    // Duration to pin the model in GPU VRAM (avoids Ollama's 5m idle eviction).
+    keepAlive: process.env.OLLAMA_KEEP_ALIVE || "60m",
+
     // Generation parameters passed to Ollama. 4k context keeps the 4B model's
     // weights + KV cache within the GTX 1650's 4GB VRAM (avoids spilling to
     // CPU/RAM); long-term recall comes from the memory layer, not a big window.
